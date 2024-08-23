@@ -1,0 +1,63 @@
+{
+  "name": "pico-serial-com",
+  "version": "0.0.1",
+  "author": "paulober",
+  "publisher": "raspberry-pi",
+  "description": "A nodejs library for communicating with devices MicroPython running the MicroPython firmware.",
+  "license": "Apache-2.0",
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=18.18"
+  },
+  "os": [
+    "win32",
+    "darwin",
+    "linux"
+  ],
+  "cpu": [
+    "x64",
+    "arm64"
+  ],
+  "module": "./dist/index.cjs",
+  "types": "./dist/index.d.ts",
+  "markdown": "github",
+  "minimumNodeVersion": 18,
+  "scripts": {
+    "prepack": "pnpm build",
+    "build": "rollup -c --environment BUILD:production",
+    "build-tests": "rollup -c --environment BUILD:development",
+    "lint": "eslint src",
+    "test": "pnpm lint && pnpm build-tests && node ./dist/tests/index.cjs"
+  },
+  "files": [
+    "dist/*.cjs",
+    "dist/*.map",
+    "dist/*.d.ts"
+  ],
+  "dependencies": {
+    "@serialport/bindings-cpp": "^12.0.1",
+    "serialport": "^12.0.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.9.0",
+    "@rollup/plugin-commonjs": "^26.0.1",
+    "@rollup/plugin-json": "^6.1.0",
+    "@rollup/plugin-node-resolve": "^15.2.3",
+    "@rollup/plugin-terser": "^0.4.4",
+    "@rollup/plugin-typescript": "^11.1.6",
+    "@serialport/bindings-interface": "^1.2.2",
+    "@types/eslint": "^9",
+    "@types/node": "18.17.x",
+    "eslint": "^9.9.0",
+    "eslint-config-prettier": "^9.1.0",
+    "globals": "^15.9.0",
+    "rollup": "^4.21.0",
+    "tslib": "^2.6.3",
+    "typescript": "^5.5.4",
+    "typescript-eslint": "^8.2.0"
+  },
+  "packageManager": "pnpm@9.7.1+sha512.faf344af2d6ca65c4c5c8c2224ea77a81a5e8859cbc4e06b1511ddce2f0151512431dd19e6aff31f2c6a8f5f2aced9bd2273e1fed7dd4de1868984059d2c4247"
+}

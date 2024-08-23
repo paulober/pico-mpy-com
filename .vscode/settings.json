@@ -1,0 +1,24 @@
+{
+  "search.exclude": {
+    "**/node_modules": true,
+    "out": true,
+    "dist": true
+  },
+  "files.exclude": {
+    "**/.git": true,
+    "**/.svn": true,
+    "**/.hg": true,
+    "**/CVS": true,
+    "**/.DS_Store": true,
+    "**/Thumbs.db": true,
+    "node_modules": true,
+    "out": true,
+    "dist": false
+  },
+  "typescript.enablePromptUseWorkspaceTsdk": true,
+  "prettier.tabWidth": 2,
+  "prettier.singleQuote": false,
+  "prettier.useTabs": false,
+  "editor.defaultFormatter": "esbenp.prettier-vscode",
+  "editor.formatOnSave": true
+}

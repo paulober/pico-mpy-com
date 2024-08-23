@@ -1,0 +1,10 @@
+.github/
+.vscode/
+.eslintrc.json
+.prettierrc.json
+rollup.config.mjs
+tsconfig.json
+tsconfig.tests.json
+.yarn
+.pnp.*
+src/
