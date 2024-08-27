@@ -134,9 +134,27 @@ export function encodeStringToEscaped(input: string): string {
   return encoded;
 }
 
-export function encodeStringToEscapedBin(input: Buffer): string {
+/**
+ * Encode a string to its escaped representation (ascii conform).
+ *
+ * @param input The input string to encode.
+ * @param bytes The number of bytes to encode and return from the start of the buffer.
+ * Defaults to all.
+ * @returns The escaped string with all special characters replaced
+ */
+export function encodeStringToEscapedBin(
+  input: Buffer,
+  bytes?: number
+): string {
+  bytes = bytes ?? input.length;
+  if (bytes <= 0) {
+    return "";
+  }
+
   let encoded = "";
+  let i = 0;
   for (const byte of input) {
+    i++;
     const charCode = byte;
 
     if (charCode < 32 || charCode > 126) {
@@ -153,6 +171,11 @@ export function encodeStringToEscapedBin(input: Buffer): string {
         // No need to encode printable ASCII characters
         encoded += String.fromCharCode(charCode);
       }
+    }
+
+    // check at the end to not start the loop again
+    if (i === bytes) {
+      break;
     }
   }
 

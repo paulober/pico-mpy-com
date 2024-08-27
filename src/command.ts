@@ -13,7 +13,7 @@ export enum CommandType {
   rmdirs,
   rmtree,
   rmFileOrDir,
-  calculateFileHashes,
+  uploadProject,
   getItemStat,
   rename,
   syncRtc,
@@ -48,7 +48,11 @@ interface CommandArgsMapping {
   [CommandType.rmdirs]: { folders: string[] };
   [CommandType.rmtree]: { folders: string[] };
   [CommandType.rmFileOrDir]: { target: string; recursive?: boolean };
-  [CommandType.calculateFileHashes]: { files: string[] };
+  [CommandType.uploadProject]: {
+    projectFolder: string;
+    fileTypes: string[];
+    ignoredItems: string[];
+  };
   [CommandType.rename]: { item: string; target: string };
   [CommandType.getItemStat]: { item: string };
   [CommandType.syncRtc]: object;

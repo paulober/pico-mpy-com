@@ -73,6 +73,31 @@ export interface HashResponse {
   error?: string;
 }
 
+/**
+ * Check if an array of HashResponse objects includes a hash for a specific file.
+ *
+ * @param responses The array of HashResponse objects.
+ * @param file The file to check for.
+ * @returns True if the file is in the array, false otherwise.
+ */
+export function hasFile(responses: HashResponse[], file: string): boolean {
+  return responses.some(response => response.file === file);
+}
+
+/**
+ * Get the hash for a specific file from an array of HashResponse objects.
+ *
+ * @param responses The array of HashResponse objects.
+ * @param file The file to get the hash for.
+ * @returns The hash or undefined if the file is not in the array.
+ */
+export function getHashFromResponses(
+  responses: HashResponse[],
+  file: string
+): string | undefined {
+  return responses.find(response => response.file === file)?.hash;
+}
+
 export function parseHashJson(data: string): HashResponse {
   return JSON.parse(data);
 }
@@ -133,12 +158,17 @@ def wrap_expressions_with_print(code):
     // Execute the Python code using the provided Python executable
     const result = execSync(`${pythonExe} -c "${oneLiner}"`, {
       encoding: "utf8",
+      // Timeout after 10 seconds
+      timeout: 10 * 1000,
+      stdio: [
+        "ignore", // stdin
+        "pipe", // stdout
+        "ignore", // stderr
+      ],
     });
 
     return result;
-  } catch (error) {
-    console.error("Error executing Python code:", error);
-
+  } catch {
     return code;
   }
 }

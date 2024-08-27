@@ -62,5 +62,5 @@ export interface OpResultGetRtcTime extends OpResult {
 export interface OpResultTabComplete extends OpResult {
   type: OperationResultType.tabComplete;
   isSimple: boolean;
-  completion: string;
+  suggestions: string;
 }

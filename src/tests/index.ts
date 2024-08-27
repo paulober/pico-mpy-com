@@ -42,6 +42,10 @@ const commands: Record<string, Command> = {
     aliases: ["lc", "listContents"],
     description: "Lists the contents of a directory.",
   },
+  listContentsRecursive: {
+    aliases: ["lcr", "listContentsRecursive"],
+    description: "Lists the contents of a directory recursively.",
+  },
   downloadFiles: {
     aliases: ["dl", "download"],
     description: "Downloads files from the board.",
@@ -62,8 +66,36 @@ const commands: Record<string, Command> = {
     aliases: ["sync", "syncRtc"],
     description: "Synchronizes the real-time clock with the system time.",
   },
-  executeCommandWithResut: {
-    aliases: ["ecr", "execute"],
+  clearFs: {
+    aliases: ["cfs", "clearFs"],
+    description: "Clears the file system.",
+  },
+  uploadProject: {
+    aliases: ["up", "uploadProject"],
+    description: "Uploads a project to the board.",
+  },
+  retrieveTabComp: {
+    aliases: ["tc", "tabComp"],
+    description: "Retrieves tab completion suggestions.",
+  },
+  getItemStat: {
+    aliases: ["gis", "getItemStat"],
+    description: "Gets the status of a file or directory.",
+  },
+  rename: {
+    aliases: ["rn", "rename"],
+    description: "Renames a file or directory.",
+  },
+  softReset: {
+    aliases: ["sr", "softReset"],
+    description: "Performs a soft reset.",
+  },
+  ctrlD: {
+    aliases: ["cd", "ctrlD"],
+    description: "Sends a Ctrl+D command.",
+  },
+  executeFriendlyCommand: {
+    aliases: ["efc", "execute"],
     description: "Executes a command and waits for the result.",
   },
   exit: {
@@ -184,6 +216,31 @@ async function handleCommand(command: string): Promise<void> {
       rl.resume();
       break;
 
+    case "listContentsRecursive":
+    case "lcr":
+      await new Promise<void>((resolve, reject) => {
+        rl.question("Enter the directory to list recursively: ", directory => {
+          rl.pause();
+          serialCom
+            .listContentsRecursive(directory)
+            .then(data => {
+              if (data.type === OperationResultType.listContents) {
+                console.log("Contents:");
+                for (const item of data.contents) {
+                  console.log(`- ${item.path} (${item.size} bytes)`);
+                }
+              } else {
+                console.error("Error listing contents.");
+              }
+              resolve();
+            })
+            .catch(reject);
+        });
+      });
+      rl.prompt();
+      rl.resume();
+      break;
+
     case "downloadFiles":
     case "dl":
       await new Promise<void>((resolve, reject) => {
@@ -285,6 +342,214 @@ async function handleCommand(command: string): Promise<void> {
         rl.resume();
       }
       break;
+
+    case "clearFs":
+    case "cfs":
+      {
+        rl.pause();
+        const data = await serialCom.rmTree("/");
+        console.log(
+          data.type === OperationResultType.status
+            ? data.status
+              ? "File system cleared successfully."
+              : "File system clearing failed."
+            : "Invalid response."
+        );
+        rl.prompt();
+        rl.resume();
+      }
+      break;
+
+    case "uploadProject":
+    case "up":
+      await new Promise<void>((resolve, reject) => {
+        rl.question("Enter the project folder: ", projectFolder => {
+          rl.question(
+            "Enter the file types to upload (none means all): ",
+            fileTypes => {
+              rl.question(
+                "Enter the ignored items (paths relative to the project folder): ",
+                ignoredItems => {
+                  rl.pause();
+                  serialCom
+                    .uploadProject(
+                      projectFolder,
+                      fileTypes.split(" ").filter(item => item.length > 0),
+                      ignoredItems.split(" ").filter(item => item.length > 0)
+                    )
+                    .then(() => {
+                      console.log("Project uploaded successfully.");
+                      resolve();
+                    })
+                    .catch(reject);
+                }
+              );
+            }
+          );
+        });
+      });
+      break;
+
+    case "tabComplete":
+    case "tc":
+      await new Promise<void>((resolve, reject) => {
+        rl.question("Enter the code to complete: ", code => {
+          rl.pause();
+          serialCom
+            .retrieveTabCompletion(code)
+            .then(data => {
+              if (data.type === OperationResultType.tabComplete) {
+                console.log("Suggestions:");
+                for (const suggestion of data.suggestions) {
+                  console.log(`- ${suggestion}`);
+                }
+              } else {
+                console.error("Error retrieving suggestions.");
+              }
+              resolve();
+            })
+            .catch(reject);
+        });
+      });
+      break;
+
+    case "execute":
+    case "efc":
+      await new Promise<void>((resolve, reject) => {
+        rl.question("Enter the command to execute: ", command => {
+          rl.pause();
+          serialCom
+            .runFriendlyCommand(
+              command,
+              (open: boolean) => {
+                if (open) {
+                  relayInput = true;
+                  rl.resume();
+                }
+              },
+              (data: Buffer) => {
+                process.stdout.write(data);
+              },
+              "python"
+            )
+            .then(data => {
+              relayInput = false;
+              if (data.type === OperationResultType.commandResult) {
+                console.log(
+                  data.result
+                    ? "Command executed successfully."
+                    : "Command failed."
+                );
+              } else {
+                console.error("Error executing command.");
+              }
+              resolve();
+            })
+            .catch(reject);
+        });
+      });
+      break;
+
+    case "getItemStat":
+    case "gis":
+      await new Promise<void>((resolve, reject) => {
+        rl.question("Enter the item to get the status of: ", item => {
+          rl.pause();
+          serialCom
+            .getItemStat(item)
+            .then(data => {
+              if (data.type === OperationResultType.getItemStat && data.stat) {
+                console.log(
+                  `Item: ${item}\n` +
+                    `Is directory: ${data.stat.isDir}\n` +
+                    `Size: ${data.stat.size} bytes\n` +
+                    `Last modified: ${
+                      data.stat.lastModified?.toString() ?? "N/A"
+                    }\n`,
+                  `Created: ${data.stat.created?.toString() ?? "N/A"}`
+                );
+              } else {
+                console.error("Error getting item status.");
+              }
+              resolve();
+            })
+            .catch(reject);
+        });
+      });
+      break;
+
+    case "rename":
+    case "rn":
+      await new Promise<void>((resolve, reject) => {
+        rl.question("Enter the item to rename: ", item => {
+          rl.question("Enter the new name: ", newName => {
+            rl.pause();
+            serialCom
+              .renameItem(item, newName)
+              .then(data => {
+                if (data.type === OperationResultType.commandResult) {
+                  console.log(
+                    data.result
+                      ? "Item renamed successfully."
+                      : "Item renaming failed."
+                  );
+                } else {
+                  console.error("Error renaming item.");
+                }
+                resolve();
+              })
+              .catch(reject);
+          });
+        });
+      });
+      break;
+
+    case "softReset":
+    case "sr":
+      {
+        rl.pause();
+        const data = await serialCom.softReset();
+        console.log(
+          data.type === OperationResultType.status
+            ? data.status
+              ? "Board reset successfully."
+              : "Board reset failed."
+            : "Invalid response."
+        );
+        rl.prompt();
+        rl.resume();
+      }
+      break;
+
+    case "ctrlD":
+    case "cd":
+      {
+        rl.pause();
+        const data = await serialCom.sendCtrlD(
+          (open: boolean) => {
+            if (open) {
+              relayInput = true;
+              rl.resume();
+            }
+          },
+          (data: Buffer) => {
+            process.stdout.write(data);
+          }
+        );
+        relayInput = false;
+        if (data.type === OperationResultType.commandResult) {
+          console.log(
+            data.result ? "Ctrl+D sent successfully." : "Ctrl+D sending failed."
+          );
+        } else {
+          console.error("Invalid response.");
+        }
+        rl.prompt();
+        rl.resume();
+      }
+      break;
+
+    // TODO: add delete commands
 
     case "exit":
     case "e":

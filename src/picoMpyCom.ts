@@ -342,9 +342,31 @@ export class PicoMpyCom extends EventEmitter {
   }
 
   /**
+   * List the contents of a directory on the MicroPython board recursively.
+   *
+   * @param remotePath The path on the board to list the contents of.
+   * @returns The result of the operation.
+   */
+  public async listContentsRecursive(
+    remotePath: string
+  ): Promise<OperationResult> {
+    if (this.isPortDisconnected()) {
+      return { type: OperationResultType.none };
+    }
+
+    return this.enqueueCommandOperation({
+      type: CommandType.listContentsRecursive,
+      args: { target: remotePath },
+    });
+  }
+
+  /**
    * Execute a command on the MicroPython board.
    * This also support executing expressions and
-   * redirecting folloup user input to the board.
+   * redirecting follow up user input to the board.
+   *
+   * Be aware that follow up user input is
+   * echoed back by the board.
    *
    * @param command The initial command to execute.
    * @param readyStateCb This callback get called once by the
@@ -475,5 +497,170 @@ export class PicoMpyCom extends EventEmitter {
       type: CommandType.syncRtc,
       args: {},
     });
+  }
+
+  public async rmTree(folder: string): Promise<OperationResult> {
+    if (this.isPortDisconnected()) {
+      return { type: OperationResultType.none };
+    }
+
+    return this.enqueueCommandOperation({
+      type: CommandType.rmtree,
+      args: { folders: [folder] },
+    });
+  }
+
+  public async uploadProject(
+    projectFolder: string,
+    fileTypes: string[],
+    ignoredItems: string[],
+    follow?: (data: Buffer) => void
+  ): Promise<OperationResult> {
+    if (this.isPortDisconnected()) {
+      return { type: OperationResultType.none };
+    }
+
+    return this.enqueueCommandOperation(
+      {
+        type: CommandType.uploadProject,
+        args: { projectFolder, fileTypes, ignoredItems },
+      },
+      follow
+    );
+  }
+
+  public async retrieveTabCompletion(code: string): Promise<OperationResult> {
+    if (this.isPortDisconnected()) {
+      return { type: OperationResultType.none };
+    }
+
+    return this.enqueueCommandOperation({
+      type: CommandType.tabComplete,
+      args: { code },
+    });
+  }
+
+  // TODO: size for empty directories is very very high
+  public async getItemStat(item: string): Promise<OperationResult> {
+    if (this.isPortDisconnected()) {
+      return { type: OperationResultType.none };
+    }
+
+    return this.enqueueCommandOperation({
+      type: CommandType.getItemStat,
+      args: { item },
+    });
+  }
+
+  public async softReset(): Promise<OperationResult> {
+    if (this.isPortDisconnected()) {
+      return { type: OperationResultType.none };
+    }
+
+    return this.enqueueCommandOperation({
+      type: CommandType.softReset,
+      args: {},
+    });
+  }
+
+  public async deleteFiles(files: string[]): Promise<OperationResult> {
+    if (this.isPortDisconnected()) {
+      return { type: OperationResultType.none };
+    }
+
+    return this.enqueueCommandOperation({
+      type: CommandType.deleteFiles,
+      args: { files },
+    });
+  }
+
+  public async createFolders(folders: string[]): Promise<OperationResult> {
+    if (this.isPortDisconnected()) {
+      return { type: OperationResultType.none };
+    }
+
+    return this.enqueueCommandOperation({
+      type: CommandType.mkdirs,
+      args: { folders },
+    });
+  }
+
+  public async deleteFolders(folders: string[]): Promise<OperationResult> {
+    if (this.isPortDisconnected()) {
+      return { type: OperationResultType.none };
+    }
+
+    return this.enqueueCommandOperation({
+      type: CommandType.rmdirs,
+      args: { folders },
+    });
+  }
+
+  public async deleteFolderRecursive(folder: string): Promise<OperationResult> {
+    if (this.isPortDisconnected()) {
+      return { type: OperationResultType.none };
+    }
+
+    return this.enqueueCommandOperation({
+      type: CommandType.rmtree,
+      args: { folders: [folder] },
+    });
+  }
+
+  /**
+   * Deletes a file or folder on the board (recursive).
+   *
+   * @param path The path to the file or folder to delete (without ':' prefix).
+   * @param recursive If the delete should be recursive.
+   * @returns
+   */
+  public async deleteFileOrFolder(
+    target: string,
+    recursive?: boolean
+  ): Promise<OperationResult> {
+    if (this.isPortDisconnected()) {
+      return { type: OperationResultType.none };
+    }
+
+    return this.enqueueCommandOperation({
+      type: CommandType.rmFileOrDir,
+      args: { target, recursive },
+    });
+  }
+
+  /**
+   * Renames a file or folder on the board.
+   *
+   * @param item The current path of the item to rename.
+   * @param target Should be in same dir as the old path (item).
+   * @returns {OperationResult} OpResultStatus or OpResultNone
+   */
+  public async renameItem(
+    item: string,
+    target: string
+  ): Promise<OperationResult> {
+    if (this.isPortDisconnected()) {
+      return { type: OperationResultType.none };
+    }
+
+    return this.enqueueCommandOperation({
+      type: CommandType.rename,
+      args: { item, target },
+    });
+  }
+
+  public async sendCtrlD(
+    readyStateCb: (open: boolean) => void,
+    follow: (data: Buffer) => void
+  ): Promise<OperationResult> {
+    if (this.isPortDisconnected()) {
+      return { type: OperationResultType.none };
+    }
+
+    return this.enqueueCommandOperation(
+      { type: CommandType.ctrlD, args: {} },
+      follow,
+      readyStateCb
+    );
   }
 }

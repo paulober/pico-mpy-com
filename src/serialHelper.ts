@@ -31,7 +31,10 @@ const BUFFER_RAW_PASTE_STATUS = Buffer.from("\x05A\x01");
 const BUFFER_R00 = Buffer.from("R\x00");
 const BUFFER_R01 = Buffer.from("R\x01");
 const BUFFER_01 = Buffer.from("\x01");
+const BUFFER_03 = Buffer.from("\x03");
 const BUFFER_04 = Buffer.from("\x04");
+const BUFFER_CR = Buffer.from("\r");
+const BUFFER_TAB = Buffer.from("\t");
 
 function ensureBuffer(data: Buffer | string | null): Buffer {
   if (data === null) {
@@ -73,7 +76,7 @@ export async function readUntil(
 
   let buffer = ensureBuffer(port.read(minBytesCount) as Buffer | string | null);
 
-  if (receiver) {
+  if (receiver && !buffer.equals(BUFFER_04)) {
     receiver(buffer);
   }
   while (true) {
@@ -190,12 +193,27 @@ export async function enterRawRepl(
   }
 }
 
-export function exitRawRepl(port: SerialPort): void {
-  port.write("\r\x02", err => {
-    if (err) {
-      throw new Error("Error exiting raw repl");
-    }
-  });
+/**
+ * Exits the raw REPL mode on the connected board.
+ *
+ * @param port The serial port to write to.
+ * @param errorCb The callback to call if an error occurs. If not
+ * provided, an error will be thrown instead.
+ * @throws Error if the write operation fails and no error callback is provided.
+ */
+export function exitRawRepl(
+  port: SerialPort,
+  errorCb?: (err: Error | null | undefined) => void
+): void {
+  port.write(
+    "\r\x02",
+    errorCb ??
+      ((err: Error | null | undefined): void => {
+        if (err) {
+          throw new Error("Error exiting raw repl");
+        }
+      })
+  );
 }
 
 /**
@@ -603,6 +621,13 @@ export async function fsListContents(
   }
 }
 
+/**
+ * Lists the contents of a directory on the connected board recursively.
+ *
+ * @param port
+ * @param target
+ * @returns
+ */
 export async function fsListContentsRecursive(
   port: SerialPort,
   target = ""
@@ -615,12 +640,11 @@ import os
 def __pe_recursive_ls(src):
  for f in os.ilistdir(src):
   is_dir = f[1] & 0x4000
+  path = src + ('/' if src[-1] != '/' else '') + f[0]
+  print('{:12} {}{}'.format(f[3] if len(f) > 3 else 0, path, '/' if is_dir else ''))
   if is_dir:
-   recursive_ls(src + ('/' if src[-1] != '/' else '') + f[0])
-  else:
-   path = src + ('/' if src[-1] != '/' else '') + f[0]
-   print('{:12} {}{}'.format(f[3] if len(f) > 3 else 0, path, '/' if is_dir else ''))
-__pe_recursive_ls(${target ? `'${target}'` : ""})
+   __pe_recursive_ls(src + ('/' if src[-1] != '/' else '') + f[0])
+__pe_recursive_ls(${target.length > 0 ? `'${target}'` : ""})
 del __pe_recursive_ls
 `;
 
@@ -644,7 +668,7 @@ export async function fsStat(
   const command = `
 import os
 def __pe_get_file_info(file_path):
- stat = uos.stat(file_path)
+ stat = os.stat(file_path)
  creation_time = stat[9]
  modification_time = stat[8]
  size = stat[6]
@@ -804,6 +828,15 @@ export async function fsGet(
   await executeCommand(port, "__pe_f.close()");
 }
 
+/**
+ * Puts a file on the connected board.
+ *
+ * @param port The serial port to write to.
+ * @param source The source file on the host.
+ * @param dest The destination file on the board.
+ * @param chunkSize The size of the chunks to send.
+ * @param progressCallback The callback to call with the progress of the operation.
+ */
 export async function fsPut(
   port: SerialPort,
   source: string,
@@ -846,7 +879,7 @@ export async function fsPut(
       // write buffer to file
       await executeCommand(
         port,
-        `__pe_w(b'${encodeStringToEscapedBin(buffer)}')`
+        `__pe_w(b'${encodeStringToEscapedBin(buffer, bytesRead)}')`
       );
 
       if (progressCallback) {
@@ -863,7 +896,12 @@ export async function fsPut(
 }
 
 export async function fsMkdir(port: SerialPort, target: string): Promise<void> {
-  await executeCommand(port, `import os\nos.mkdir('${target}')`);
+  await executeCommand(
+    port,
+    `import os\nos.mkdir('${target}')`,
+    undefined,
+    true
+  );
 }
 
 export async function fsRmdir(port: SerialPort, target: string): Promise<void> {
@@ -884,7 +922,6 @@ export async function fsRmdirRecursive(
 ): Promise<void> {
   //const commandShort = `import os; def __pe_deltree(target): [__pe_deltree((current:=target + d) if target == '/' else (current:=target + '/' + d)) or os.remove(current) for d in os.listdir(target)]; os.rmdir(target) if target != '/' else None; __pe_deltree('${target}'); del __pe_deltree`;
 
-  // doesn't allow to delete root directory
   const command = `
 import os
 def __pe_deltree(target):
@@ -958,7 +995,7 @@ del __pe_is_dir
  */
 export async function fsCalcFilesHashes(
   port: SerialPort,
-  files: string
+  files: string[]
 ): Promise<HashResponse[]> {
   const command = `
 import uhashlib
@@ -980,7 +1017,7 @@ def __pe_hash_file(file):
     h.update(data)
    print(json.dumps({"file": file, "hash": ubinascii.hexlify(h.digest()).decode()}))
  except Exception as e:
-  print(ujson.dumps({"file": file, "error": f"{e.__class__.__name__}: {e}"}))
+  print(json.dumps({"file": file, "error": f"{e.__class__.__name__}: {e}"}))
 `;
 
   await executeCommand(port, command);
@@ -988,16 +1025,15 @@ def __pe_hash_file(file):
   const hashes: HashResponse[] = [];
   for (const file of files) {
     try {
+      // TODO: maybe it could fail for too large files
       const hashJson = await executeCommand(port, `__pe_hash_file('${file}')`);
       const hashResponse = parseHashJson(hashJson);
-      if (hashResponse.error) {
-        console.error(
-          `Failed to hash file: ${file} with error: ${hashResponse.error}`
-        );
-      } else {
+      // no one cares if hash.error is defined as this mostlikely means the file does not exist
+      if (!hashResponse.error) {
         hashes.push(hashResponse);
       }
     } catch (error) {
+      // this is more serious as it could mean that the json module or the hashing module is not available
       console.error(error);
     }
   }
@@ -1024,7 +1060,7 @@ export async function runFile(
     if (file.endsWith(".mpy") && data[0] === 77) {
       await executeCommand(
         port,
-        `_injected_buf=b'${encodeStringToEscapedBin(data)}'`
+        `_injected_buf=b'${encodeStringToEscapedBin(data, data.length)}'`
       );
       data = Buffer.from(injectedImportHookCode, "utf-8");
     }
@@ -1093,4 +1129,119 @@ export async function hardReset(
     receiver,
     true
   );
+}
+
+/**
+ * Retrieves the tab completion for a given prefix from the connected board.
+ *
+ * @param port The serial port to write to.
+ * @param prefix The prefix to get tab completion for.
+ * @returns The tab completion for the prefix and a boolean indicating if it is a simple completion.
+ */
+export async function retrieveTabCompletion(
+  port: SerialPort,
+  prefix: string
+): Promise<[string, boolean]> {
+  const prefixBin = Buffer.from(prefix.trimEnd(), "utf-8");
+
+  try {
+    // exit raw repl
+    exitRawRepl(port);
+    // speed up by making sure flush is already running
+    port.flush();
+    await readUntil(port, 1, "\r\n>>> ", 2);
+
+    // write prefix to get tab completion for
+    port.write(prefixBin);
+    // send tab command to get completion
+    port.write(BUFFER_TAB);
+
+    // shorter timeout needed as if no completion is available
+    // it waits for the timeout to expire
+    const value = await readUntil(port, 1, "\r\n", 0.1);
+
+    if (!value) {
+      throw new Error("Error retrieving tab completion");
+    }
+
+    // +2 for newline and carriage return expected above
+    if (value.length > prefixBin.length + 2) {
+      // simple tab completion available | means online one available option
+      return [value.toString("utf-8"), true];
+    } else {
+      // multiline tab completion available | means multiple options available
+      const completions = await readUntil(port, 1, prefixBin, 0.1);
+      if (!completions) {
+        throw new Error("Error retrieving tab completion");
+      }
+
+      return [
+        completions.subarray(0, -prefixBin.length - 4).toString("utf-8"),
+        false,
+      ];
+    }
+  } finally {
+    // clear line so enter raw repl has best chance to work
+    port.write(BUFFER_03);
+    // make sure to reenter raw repl!!
+    await enterRawRepl(port, false);
+  }
+}
+
+/**
+ *
+ *
+ * @param port The serial port to write to.
+ * @param emitter The event emitter to listen to for relayInput events.
+ * @param receiver The function to call with the data received from the serial port.
+ * @returns {false} if the timeout is reached before boot and main finished executing. Otherwise {true}.
+ */
+export async function interactiveCtrlD(
+  port: SerialPort,
+  emitter: EventEmitter,
+  receiver: (data: Buffer) => void
+): Promise<boolean> {
+  // listen to emiter for relayInput events and send the data to the board
+  // until the executeCommandWithResponse promise resolves
+  let relayOpen = false;
+
+  const onRelayInput = (data: Buffer): void => {
+    if (!relayOpen) {
+      // discards any input that arrives before the command has been sent
+      return;
+    }
+    port.write(data, err => {
+      if (err) {
+        throw new Error("Error evaluating expression");
+      }
+    });
+  };
+
+  emitter.on(PicoSerialEvents.relayInput, onRelayInput);
+
+  try {
+    exitRawRepl(port);
+    // wait for 0.02
+    await new Promise(resolve => setTimeout(resolve, 20));
+    // discard any output
+    port.read();
+
+    port.write(Buffer.concat([BUFFER_CR, BUFFER_04]));
+    relayOpen = true;
+    // doesn't store response until return as receiver is provided
+    await readUntil(port, 1, "\n>>> ", 50, receiver);
+
+    return true;
+  } catch {
+    // stop running stuff to be able to reenter raw repl
+    stopRunningStuff(port);
+
+    return false;
+  } finally {
+    // remove listener
+    emitter.off(PicoSerialEvents.relayInput, onRelayInput);
+
+    // reenter raw repl
+    await enterRawRepl(port, false);
+  }
 }
