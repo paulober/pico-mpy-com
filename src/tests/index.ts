@@ -50,6 +50,18 @@ const commands: Record<string, Command> = {
     aliases: ["ul", "upload"],
     description: "Uploads files to the board.",
   },
+  runFile: {
+    aliases: ["rf", "run"],
+    description: "Runs a local file on the board.",
+  },
+  getRtcTime: {
+    aliases: ["grt", "getRtcTime"],
+    description: "Gets the real-time clock time from the board.",
+  },
+  syncRtc: {
+    aliases: ["sync", "syncRtc"],
+    description: "Synchronizes the real-time clock with the system time.",
+  },
   executeCommandWithResut: {
     aliases: ["ecr", "execute"],
     description: "Executes a command and waits for the result.",
@@ -77,6 +89,8 @@ serialCom.on(PicoSerialEvents.portError, error => {
   rl.prompt();
   rl.resume();
 });
+
+let relayInput = false;
 
 async function handleCommand(command: string): Promise<void> {
   switch (command) {
@@ -212,6 +226,66 @@ async function handleCommand(command: string): Promise<void> {
       });
       break;
 
+    case "runFile":
+    case "rf":
+      await new Promise<void>((resolve, reject) => {
+        rl.question("Enter the file to run: ", file => {
+          rl.pause();
+          serialCom
+            .runFile(
+              file,
+              (open: boolean) => {
+                if (open) {
+                  relayInput = true;
+                  rl.resume();
+                }
+              },
+              (data: Buffer) => {
+                process.stdout.write(data);
+              }
+            )
+            .then(() => {
+              relayInput = false;
+              console.log("File executed successfully.");
+              resolve();
+            })
+            .catch(reject);
+        });
+      });
+      break;
+
+    case "getRtcTime":
+    case "grt":
+      {
+        rl.pause();
+        const data = await serialCom.getRtcTime();
+        console.log(
+          data.type === OperationResultType.getRtcTime
+            ? data.time?.toString() ?? "No time received."
+            : "Invalid response."
+        );
+        rl.prompt();
+        rl.resume();
+      }
+      break;
+
+    case "syncRtc":
+    case "sync":
+      {
+        rl.pause();
+        const data = await serialCom.syncRtcTime();
+        console.log(
+          data.type === OperationResultType.status
+            ? data.status
+              ? "RTC synchronized successfully."
+              : "RTC synchronization failed."
+            : "Invalid response."
+        );
+        rl.prompt();
+        rl.resume();
+      }
+      break;
+
     case "exit":
     case "e":
       process.exit(0);
@@ -237,6 +311,14 @@ handleCommand("help")
     rl.prompt();
 
     rl.on("line", line => {
+      if (relayInput) {
+        serialCom.emit(
+          PicoSerialEvents.relayInput,
+          Buffer.from(line + "\r\n", "utf-8")
+        );
+
+        return;
+      }
       handleCommand(line.trim())
         .then(() => rl.prompt())
         .catch(console.error);

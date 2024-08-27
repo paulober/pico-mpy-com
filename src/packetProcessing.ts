@@ -121,7 +121,11 @@ def wrap_expressions_with_print(code):
         return wrapped_code
     except Exception:
         return code*/
-  const escapedCode = code.replaceAll(/"/g, '\\"').replaceAll(/'/g, "\\'");
+  const escapedCode = code
+    .replaceAll(/"/g, '\\"')
+    .replaceAll(/'/g, "\\'")
+    // as the command for executing python doesn't support multiline
+    .replaceAll(/\n/g, "\\n");
   // eslint-disable-next-line max-len
   const oneLiner = `import ast; wrap_expressions_with_print=lambda code:ast.unparse(PrintWrapper().visit(ast.parse(code))) if not isinstance(None,Exception) else code; PrintWrapper=type('PrintWrapper',(ast.NodeTransformer,),{'visit_Expr':lambda self,node:(ast.Expr(value=ast.Call(func=ast.Name(id='print',ctx=ast.Load()),args=[node.value],keywords=[])) if not (isinstance(node.value,ast.Call) and isinstance(node.value.func,ast.Name) and node.value.func.id=='print') else node)}); print(wrap_expressions_with_print('''${escapedCode}'''))`;
 

@@ -217,7 +217,8 @@ export class PicoMpyCom extends EventEmitter {
   private async enqueueCommandOperation(
     command: Command,
     receiver?: (data: Buffer) => void,
-    readyStateCb?: (open: boolean) => void
+    readyStateCb?: (open: boolean) => void,
+    pythonInterpreterPath?: string
   ): Promise<OperationResult> {
     if (!this.serialPort || this.serialPortClosing) {
       //throw new Error("Serial port not open");
@@ -254,7 +255,8 @@ export class PicoMpyCom extends EventEmitter {
             this.serialPort,
             this,
             command,
-            receiver
+            receiver,
+            pythonInterpreterPath
           );
 
           if (command.type !== CommandType.hardReset) {
@@ -355,7 +357,8 @@ export class PicoMpyCom extends EventEmitter {
   public async runFriendlyCommand(
     command: string,
     readyStateCb: (open: boolean) => void,
-    receiver: (data: Buffer) => void
+    receiver: (data: Buffer) => void,
+    pythonInterpreterPath: string
   ): Promise<OperationResult> {
     if (this.isPortDisconnected()) {
       return { type: OperationResultType.none };
@@ -367,7 +370,8 @@ export class PicoMpyCom extends EventEmitter {
         args: { code: command },
       },
       receiver,
-      readyStateCb
+      readyStateCb,
+      pythonInterpreterPath
     );
   }
 
@@ -430,5 +434,46 @@ export class PicoMpyCom extends EventEmitter {
       },
       follow
     );
+  }
+
+  public async runFile(
+    file: string,
+    readyStateCb: (open: boolean) => void,
+    follow: (data: Buffer) => void
+  ): Promise<OperationResult> {
+    if (this.isPortDisconnected()) {
+      return { type: OperationResultType.none };
+    }
+
+    return this.enqueueCommandOperation(
+      {
+        type: CommandType.runFile,
+        args: { files: [file] },
+      },
+      follow,
+      readyStateCb
+    );
+  }
+
+  public async getRtcTime(): Promise<OperationResult> {
+    if (this.isPortDisconnected()) {
+      return { type: OperationResultType.none };
+    }
+
+    return this.enqueueCommandOperation({
+      type: CommandType.getRtcTime,
+      args: {},
+    });
+  }
+
+  public async syncRtcTime(): Promise<OperationResult> {
+    if (this.isPortDisconnected()) {
+      return { type: OperationResultType.none };
+    }
+
+    return this.enqueueCommandOperation({
+      type: CommandType.syncRtc,
+      args: {},
+    });
   }
 }

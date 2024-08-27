@@ -11,6 +11,9 @@ import {
   fsRemove,
   fsRmdir,
   fsRmdirRecursive,
+  getRtcTime,
+  runFile,
+  syncRtc,
 } from "./serialHelper.js";
 import { type Command, CommandType } from "./command.js";
 import {
@@ -125,6 +128,41 @@ export async function executeAnyCommand(
         command as Command<CommandType.downloadFiles>,
         receiver
       );
+
+    case CommandType.getRtcTime:
+      return executeGetRtcTimeCommand(port);
+
+    case CommandType.syncRtc:
+      return executeSyncRtcTimeCommand(port);
+
+    case CommandType.calculateFileHashes:
+      return { type: OperationResultType.none };
+
+    case CommandType.getItemStat:
+      return { type: OperationResultType.none };
+
+    case CommandType.rename:
+      return { type: OperationResultType.none };
+
+    case CommandType.runFile:
+      return executeRunFileCommand(
+        port,
+        emitter,
+        command as Command<CommandType.runFile>,
+        receiver as (data: Buffer) => void
+      );
+
+    case CommandType.doubleCtrlC:
+      return { type: OperationResultType.none };
+
+    case CommandType.tabComplete:
+      return { type: OperationResultType.none };
+
+    case CommandType.listContentsRecursive:
+      return { type: OperationResultType.none };
+
+    case CommandType.softReset:
+      return { type: OperationResultType.none };
 
     default:
       // "Unknown command type"
@@ -542,4 +580,51 @@ export async function executeDownloadFilesCommand(
 
   // TODO: also decide when status false
   return { type: OperationResultType.status, status: true };
+}
+
+export async function executeRunFileCommand(
+  port: SerialPort,
+  emitter: EventEmitter,
+  command: Command<CommandType.runFile>,
+  receiver: (data: Buffer) => void
+): Promise<OperationResult> {
+  ok(command.args.files && command.args.files.length === 1);
+
+  try {
+    await runFile(port, command.args.files[0], emitter, receiver);
+
+    return { type: OperationResultType.status, status: true };
+  } catch {
+    return { type: OperationResultType.status, status: false };
+  }
+}
+
+/**
+ * Execute a command to get the current time from the RTC on the board.
+ *
+ * @param port The serial port where the board is connected to.
+ * @returns The result of the operation.
+ */
+export async function executeGetRtcTimeCommand(
+  port: SerialPort
+): Promise<OperationResult> {
+  try {
+    const result = await getRtcTime(port);
+
+    return { type: OperationResultType.getRtcTime, time: result };
+  } catch {
+    return { type: OperationResultType.none };
+  }
+}
+
+export async function executeSyncRtcTimeCommand(
+  port: SerialPort
+): Promise<OperationResult> {
+  try {
+    await syncRtc(port);
+
+    return { type: OperationResultType.status, status: true };
+  } catch {
+    return { type: OperationResultType.status, status: false };
+  }
 }

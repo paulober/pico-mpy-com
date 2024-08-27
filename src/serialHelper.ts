@@ -81,7 +81,8 @@ export async function readUntil(
       break;
     } else if (port.readable && port.readableLength > 0) {
       const newData = ensureBuffer(port.read(1) as Buffer | string | null);
-      if (receiver) {
+      // TODO: maybe also not relay the data if it is the suffix
+      if (receiver && !newData.equals(BUFFER_04)) {
         receiver(newData);
         // reduce memory usage by reassigning buffer
         // instead of concatenating as the data has
@@ -452,7 +453,6 @@ export async function executeCommand(
   silentFail?: boolean
 ): Promise<string> {
   // TODO: remove timing
-  console.time("chunk");
   const result = await executeCommandWithResult(
     port,
     command,
@@ -464,7 +464,6 @@ export async function executeCommand(
   if (!silentFail && result.error !== "") {
     throw new Error(result.error);
   }
-  console.timeEnd("chunk");
 
   return result.data;
 }
@@ -488,6 +487,31 @@ export async function evaluteExpression(
   emitter: EventEmitter,
   receiver: (data: Buffer) => void
 ): Promise<string | null> {
+  const command = wrapExpressionWithPrint(
+    pythonInterpreterPath,
+    expression instanceof Buffer ? expression.toString("utf-8") : expression
+  );
+
+  return executeCommandInteractive(port, command, emitter, receiver);
+}
+
+/**
+ * Executes a command on the MicroPython REPL and returns the output.'
+ * This function is used for interactive commands that have the can
+ * receive user input.
+ *
+ * @param port The serial port to write to.
+ * @param command The command to execute.
+ * @param emitter The event emitter to listen to for relayInput events.
+ * @param receiver The function to call with the data received from the serial port.
+ * @returns Null if no error otherwise the error message.
+ */
+export async function executeCommandInteractive(
+  port: SerialPort,
+  command: string | Buffer,
+  emitter: EventEmitter,
+  receiver: (data: Buffer) => void
+): Promise<string | null> {
   // listen to emiter for relayInput events and send the data to the board
   // until the executeCommandWithResponse promise resolves
   let relayOpen = false;
@@ -506,16 +530,12 @@ export async function evaluteExpression(
 
   emitter.on(PicoSerialEvents.relayInput, onRelayInput);
 
-  const command = wrapExpressionWithPrint(
-    pythonInterpreterPath,
-    expression instanceof Buffer ? expression.toString("utf-8") : expression
-  );
   try {
     relayOpen = true;
     // doesn't store response until return as receiver is provided
     const { error } = await executeCommandWithResult(
       port,
-      command,
+      command instanceof Buffer ? command.toString("utf-8") : command,
       null,
       receiver
     );
@@ -990,7 +1010,6 @@ def __pe_hash_file(file):
 export async function runFile(
   port: SerialPort,
   file: string,
-  pythonInterpreterPath: string,
   emitter: EventEmitter,
   receiver: (data: Buffer) => void
 ): Promise<void> {
@@ -1001,14 +1020,17 @@ export async function runFile(
     // close as soon as possible so user can continue editing
     await fileHandle?.close();
 
+    // TODO: maybe not upload and enter full file at once in one command
     if (file.endsWith(".mpy") && data[0] === 77) {
-      await executeCommand(port, `_injected_buf=b'${data.toString("ascii")}'`);
+      await executeCommand(
+        port,
+        `_injected_buf=b'${encodeStringToEscapedBin(data)}'`
+      );
       data = Buffer.from(injectedImportHookCode, "utf-8");
     }
-    const error = await evaluteExpression(
+    const error = await executeCommandInteractive(
       port,
       data,
-      pythonInterpreterPath,
       emitter,
       receiver
     );
