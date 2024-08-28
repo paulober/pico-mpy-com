@@ -313,9 +313,13 @@ export class PicoMpyCom extends EventEmitter {
    *
    * @returns True if the serial port is disconnected, false otherwise.
    */
-  private isPortDisconnected(): boolean {
+  public isPortDisconnected(): boolean {
     return (
-      !this.serialPort || this.serialPort.closed || this.serialPort.destroyed
+      !this.serialPort ||
+      this.serialPort.closed ||
+      this.serialPort.destroyed ||
+      this.serialPort.errored !== null ||
+      !this.serialPort.isOpen
     );
   }
 
@@ -373,6 +377,30 @@ export class PicoMpyCom extends EventEmitter {
       type: CommandType.listContentsRecursive,
       args: { target: remotePath },
     });
+  }
+
+  /**
+   * Run a command on the MicroPython board.
+   *
+   * @param command The command to execute.
+   * @param receiver The receiver function for the command response.
+   * @returns The result of the operation.
+   */
+  public async runCommand(
+    command: string,
+    receiver?: (data: Buffer) => void
+  ): Promise<OperationResult> {
+    if (this.isPortDisconnected()) {
+      return { type: OperationResultType.none };
+    }
+
+    return this.enqueueCommandOperation(
+      {
+        type: CommandType.command,
+        args: { command },
+      },
+      receiver
+    );
   }
 
   /**
