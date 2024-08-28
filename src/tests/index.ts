@@ -94,6 +94,26 @@ const commands: Record<string, Command> = {
     aliases: ["cd", "ctrlD"],
     description: "Sends a Ctrl+D command.",
   },
+  deleteFiles: {
+    aliases: ["dfi", "deleteFiles"],
+    description: "Deletes files from the board.",
+  },
+  createFolders: {
+    aliases: ["cfo", "createFolders"],
+    description: "Creates folders on the board.",
+  },
+  deleteFolders: {
+    aliases: ["dfo", "deleteFolders"],
+    description: "Deletes folders on the board.",
+  },
+  deleteFolderRecursive: {
+    aliases: ["dfor", "deleteFolderRecursive"],
+    description: "Deletes a folder on the board recursively.",
+  },
+  deleteFileOrFolderRecursive: {
+    aliases: ["dfr", "deleteFileOrFolderRecursive"],
+    description: "Deletes a file or folder on the board recursively.",
+  },
   executeFriendlyCommand: {
     aliases: ["efc", "execute"],
     description: "Executes a command and waits for the result.",
@@ -332,8 +352,8 @@ async function handleCommand(command: string): Promise<void> {
         rl.pause();
         const data = await serialCom.syncRtcTime();
         console.log(
-          data.type === OperationResultType.status
-            ? data.status
+          data.type === OperationResultType.commandResult
+            ? data.result
               ? "RTC synchronized successfully."
               : "RTC synchronization failed."
             : "Invalid response."
@@ -347,10 +367,10 @@ async function handleCommand(command: string): Promise<void> {
     case "cfs":
       {
         rl.pause();
-        const data = await serialCom.rmTree("/");
+        const data = await serialCom.deleteFolderRecursive("/");
         console.log(
-          data.type === OperationResultType.status
-            ? data.status
+          data.type === OperationResultType.commandResult
+            ? data.result
               ? "File system cleared successfully."
               : "File system clearing failed."
             : "Invalid response."
@@ -368,6 +388,7 @@ async function handleCommand(command: string): Promise<void> {
             "Enter the file types to upload (none means all): ",
             fileTypes => {
               rl.question(
+                // eslint-disable-next-line max-len
                 "Enter the ignored items (paths relative to the project folder): ",
                 ignoredItems => {
                   rl.pause();
@@ -400,9 +421,7 @@ async function handleCommand(command: string): Promise<void> {
             .then(data => {
               if (data.type === OperationResultType.tabComplete) {
                 console.log("Suggestions:");
-                for (const suggestion of data.suggestions) {
-                  console.log(`- ${suggestion}`);
-                }
+                console.log(data.suggestions);
               } else {
                 console.error("Error retrieving suggestions.");
               }
@@ -510,8 +529,8 @@ async function handleCommand(command: string): Promise<void> {
         rl.pause();
         const data = await serialCom.softReset();
         console.log(
-          data.type === OperationResultType.status
-            ? data.status
+          data.type === OperationResultType.commandResult
+            ? data.result
               ? "Board reset successfully."
               : "Board reset failed."
             : "Invalid response."
@@ -550,6 +569,128 @@ async function handleCommand(command: string): Promise<void> {
       break;
 
     // TODO: add delete commands
+    case "deleteFiles":
+    case "dfi":
+      await new Promise<void>((resolve, reject) => {
+        rl.question("Enter the files to delete: ", files => {
+          rl.pause();
+          serialCom
+            .deleteFiles(files.split(" "))
+            .then(data => {
+              if (data.type === OperationResultType.commandResult) {
+                console.log(
+                  data.result
+                    ? "Files deleted successfully."
+                    : "Files deletion failed."
+                );
+              } else {
+                console.error("Error deleting files.");
+              }
+              resolve();
+            })
+            .catch(reject);
+        });
+      });
+      break;
+
+    case "createFolders":
+    case "cfo":
+      await new Promise<void>((resolve, reject) => {
+        rl.question("Enter the folders to create: ", folders => {
+          rl.pause();
+          serialCom
+            .createFolders(folders.split(" "))
+            .then(data => {
+              if (data.type === OperationResultType.commandResult) {
+                console.log(
+                  data.result
+                    ? "Folders created successfully."
+                    : "Folders creation failed."
+                );
+              } else {
+                console.error("Error creating folders.");
+              }
+              resolve();
+            })
+            .catch(reject);
+        });
+      });
+      break;
+
+    case "deleteFolders":
+    case "dfo":
+      await new Promise<void>((resolve, reject) => {
+        rl.question("Enter the folders to delete: ", folders => {
+          rl.pause();
+          serialCom
+            .deleteFolders(folders.split(" "))
+            .then(data => {
+              if (data.type === OperationResultType.commandResult) {
+                console.log(
+                  data.result
+                    ? "Folders deleted successfully."
+                    : "Folders deletion failed."
+                );
+              } else {
+                console.error("Error deleting folders.");
+              }
+              resolve();
+            })
+            .catch(reject);
+        });
+      });
+      break;
+
+    case "deleteFolderRecursive":
+    case "dfor":
+      await new Promise<void>((resolve, reject) => {
+        rl.question("Enter the folder to delete recursively: ", folder => {
+          rl.pause();
+          serialCom
+            .deleteFolderRecursive(folder)
+            .then(data => {
+              if (data.type === OperationResultType.commandResult) {
+                console.log(
+                  data.result
+                    ? "Folder deleted successfully."
+                    : "Folder deletion failed."
+                );
+              } else {
+                console.error("Error deleting folder.");
+              }
+              resolve();
+            })
+            .catch(reject);
+        });
+      });
+      break;
+
+    case "deleteFileOrFolderRecursive":
+    case "dfr":
+      await new Promise<void>((resolve, reject) => {
+        rl.question(
+          "Enter the file or folder to delete recursively: ",
+          item => {
+            rl.pause();
+            serialCom
+              .deleteFileOrFolder(item, true)
+              .then(data => {
+                if (data.type === OperationResultType.commandResult) {
+                  console.log(
+                    data.result
+                      ? "Item deleted successfully."
+                      : "Item deletion failed."
+                  );
+                } else {
+                  console.error("Error deleting item.");
+                }
+                resolve();
+              })
+              .catch(reject);
+          }
+        );
+      });
+      break;
 
     case "exit":
     case "e":

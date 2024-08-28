@@ -127,7 +127,7 @@ export class PicoMpyCom extends EventEmitter {
     this.emit(PicoSerialEvents.portOpened);
 
     // setup the port
-    enterRawRepl(this.serialPort)
+    enterRawRepl(this.serialPort, false)
       .then(() => {
         // unlock queue
         this.operationInProgress = false;
@@ -420,6 +420,14 @@ export class PicoMpyCom extends EventEmitter {
     );
   }
 
+  /**
+   * Download files from the MicroPython board.
+   *
+   * @param files Download files from the board.
+   * @param target Target directory on the local machine.
+   * @param follow The callback to receive the data from the board.
+   * @returns The result of the operation.
+   */
   public async downloadFiles(
     files: string[],
     target: string,
@@ -439,6 +447,17 @@ export class PicoMpyCom extends EventEmitter {
   }
 
   // TODO: progress callback, calculate files and chunks per file before start if progress callback
+  /**
+   * Upload files to the MicroPython board.
+   *
+   * @param files Files to upload.
+   * @param target Target directory on the board.
+   * @param localBaseDir Local base directory for the files.
+   * It will be used for relative placement of the files on the board
+   * relative to the target. Used to keep the directory structure.
+   * @param follow The callback to receive the data from the board.
+   * @returns The result of the operation.
+   */
   public async uploadFiles(
     files: string[],
     target: string,
@@ -458,6 +477,15 @@ export class PicoMpyCom extends EventEmitter {
     );
   }
 
+  /**
+   * Run a local file on the MicroPython board.
+   *
+   * @param file The local path to the file to run.
+   * @param readyStateCb This callback get called once by the
+   * queue system when the port is ready to receive additional user data.
+   * @param follow The callback to receive the data from the board.
+   * @returns The result of the operation.
+   */
   public async runFile(
     file: string,
     readyStateCb: (open: boolean) => void,
@@ -477,6 +505,11 @@ export class PicoMpyCom extends EventEmitter {
     );
   }
 
+  /**
+   * Get the current RTC time of the MicroPython board.
+   *
+   * @returns The result of the operation.
+   */
   public async getRtcTime(): Promise<OperationResult> {
     if (this.isPortDisconnected()) {
       return { type: OperationResultType.none };
@@ -488,6 +521,11 @@ export class PicoMpyCom extends EventEmitter {
     });
   }
 
+  /**
+   * Synchronize the RTC time of the MicroPython board with the current system time.
+   *
+   * @returns The result of the operation.
+   */
   public async syncRtcTime(): Promise<OperationResult> {
     if (this.isPortDisconnected()) {
       return { type: OperationResultType.none };
@@ -499,7 +537,13 @@ export class PicoMpyCom extends EventEmitter {
     });
   }
 
-  public async rmTree(folder: string): Promise<OperationResult> {
+  /**
+   * Deletes a folder on the board (recursive).
+   *
+   * @param folder The folder to delete.
+   * @returns The result of the operation.
+   */
+  public async deleteFolderRecursive(folder: string): Promise<OperationResult> {
     if (this.isPortDisconnected()) {
       return { type: OperationResultType.none };
     }
@@ -510,6 +554,18 @@ export class PicoMpyCom extends EventEmitter {
     });
   }
 
+  // TODO: document wildcards
+  /**
+   * Upload a project to the MicroPython board.
+   *
+   * @param projectFolder The path to the project folder to upload.
+   * @param fileTypes File types to upload (e.g. ["py", "json"]).
+   * Empty array uploads all files.
+   * @param ignoredItems Items to ignore during upload.
+   * Relative paths and allows certain wildcards (to be documented).
+   * @param follow The callback to receive the data from the board.
+   * @returns The result of the operation.
+   */
   public async uploadProject(
     projectFolder: string,
     fileTypes: string[],
@@ -529,6 +585,12 @@ export class PicoMpyCom extends EventEmitter {
     );
   }
 
+  /**
+   * Retrieve tab completions for a given code snippet.
+   *
+   * @param code The code snippet to retrieve tab completions for.
+   * @returns The result of the operation.
+   */
   public async retrieveTabCompletion(code: string): Promise<OperationResult> {
     if (this.isPortDisconnected()) {
       return { type: OperationResultType.none };
@@ -540,7 +602,12 @@ export class PicoMpyCom extends EventEmitter {
     });
   }
 
-  // TODO: size for empty directories is very very high
+  /**
+   * Get detailed information about a file or folder on the board.
+   *
+   * @param item The path to the file or folder to get information about.
+   * @returns The result of the operation.
+   */
   public async getItemStat(item: string): Promise<OperationResult> {
     if (this.isPortDisconnected()) {
       return { type: OperationResultType.none };
@@ -552,6 +619,11 @@ export class PicoMpyCom extends EventEmitter {
     });
   }
 
+  /**
+   * Soft reset the MicroPython board and cancel all auto-start scripts run after soft reset.
+   *
+   * @returns The result of the operation.
+   */
   public async softReset(): Promise<OperationResult> {
     if (this.isPortDisconnected()) {
       return { type: OperationResultType.none };
@@ -563,6 +635,12 @@ export class PicoMpyCom extends EventEmitter {
     });
   }
 
+  /**
+   * Deletes a list of files on the board.
+   *
+   * @param files The list of files to delete.
+   * @returns The result of the operation.
+   */
   public async deleteFiles(files: string[]): Promise<OperationResult> {
     if (this.isPortDisconnected()) {
       return { type: OperationResultType.none };
@@ -574,6 +652,12 @@ export class PicoMpyCom extends EventEmitter {
     });
   }
 
+  /**
+   * Creates a list of folders on the board.
+   *
+   * @param folders A list of folders to create.
+   * @returns The result of the operation.
+   */
   public async createFolders(folders: string[]): Promise<OperationResult> {
     if (this.isPortDisconnected()) {
       return { type: OperationResultType.none };
@@ -585,6 +669,16 @@ export class PicoMpyCom extends EventEmitter {
     });
   }
 
+  /**
+   * Deletes a list of folders on the board.
+   *
+   * (the rmdir command does also allow to delete files
+   * but is not intended for that, use the
+   * rmFileOrDirectory command instead)
+   *
+   * @param folders The list of folders to delete.
+   * @returns The result of the operation.
+   */
   public async deleteFolders(folders: string[]): Promise<OperationResult> {
     if (this.isPortDisconnected()) {
       return { type: OperationResultType.none };
@@ -593,17 +687,6 @@ export class PicoMpyCom extends EventEmitter {
     return this.enqueueCommandOperation({
       type: CommandType.rmdirs,
       args: { folders },
-    });
-  }
-
-  public async deleteFolderRecursive(folder: string): Promise<OperationResult> {
-    if (this.isPortDisconnected()) {
-      return { type: OperationResultType.none };
-    }
-
-    return this.enqueueCommandOperation({
-      type: CommandType.rmtree,
-      args: { folders: [folder] },
     });
   }
 
@@ -649,6 +732,16 @@ export class PicoMpyCom extends EventEmitter {
     });
   }
 
+  /**
+   * Performs a soft-reset and listens to the output of the board
+   * and relays additional input to the board.
+   *
+   * @param readyStateCb This callback get called once by the
+   * queue system when the port is ready to receive additional user data.
+   * (I could take short moment after that for the content really to be relayed.)
+   * @param follow The callback to receive the data from the board.
+   * @returns The result of the operation.
+   */
   public async sendCtrlD(
     readyStateCb: (open: boolean) => void,
     follow: (data: Buffer) => void
@@ -663,4 +756,25 @@ export class PicoMpyCom extends EventEmitter {
       readyStateCb
     );
   }
+
+  // doesn't work on the pico
+  /**
+   * Factory reset the filesystem on the MicroPython board.
+   *
+   * Resetting the filesystem deletes all files on the internal storage (not the SD card),
+   * and restores the files boot.py and main.py back to their original state
+   * after the next reset.
+   *
+   * @returns The result of the operation.
+   *
+  public async factoryResetFileSystem(): Promise<OperationResult> {
+    if (this.isPortDisconnected()) {
+      return { type: OperationResultType.none };
+    }
+
+    return this.enqueueCommandOperation({
+      type: CommandType.factoryResetFilesystem,
+      args: {},
+    });
+  }*/
 }

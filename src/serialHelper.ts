@@ -33,6 +33,7 @@ const BUFFER_R01 = Buffer.from("R\x01");
 const BUFFER_01 = Buffer.from("\x01");
 const BUFFER_03 = Buffer.from("\x03");
 const BUFFER_04 = Buffer.from("\x04");
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const BUFFER_CR = Buffer.from("\r");
 const BUFFER_TAB = Buffer.from("\t");
 
@@ -49,13 +50,16 @@ function ensureBuffer(data: Buffer | string | null): Buffer {
 /**
  * Reads data from the serial port until the given suffix is found.
  *
+ * It's recommended to supply a receiver function only if the suffix is a single byte.
+ *
  * @param port The serial port to read from.
  * @param minBytesCount The minimum number of bytes to read before checking for the suffix.
  * @param suffix The suffix to look for in the data.
  * @param timeout The timeout in seconds to wait for the suffix.
  * @param receiver If provided, the function will be called with the
  * data received from the serial port when it arrives. And it will only return
- * the last byte read.
+ * the last byte read. If provided and suffix length > 1 receiver will
+ * echo back the expected suffix at the end of the transmission.
  * @throws Timeout error if the timeout is reached.
  * @returns The data read from the serial port.
  */
@@ -64,10 +68,13 @@ export async function readUntil(
   minBytesCount: number,
   suffix: string | Buffer,
   timeout: number | null = 10,
-  receiver?: (data: Buffer) => void
+  receiver?: (data: Buffer) => void,
+  skip?: number
 ): Promise<Buffer | undefined> {
   // TODO: remove logging commands
-  ok(receiver === undefined || suffix.length === 1);
+  //ok(receiver === undefined || suffix.length === 1);
+  let encounters = 0;
+  let blockCheck = false;
 
   const exprectedSuffix =
     suffix instanceof Buffer ? suffix : Buffer.from(suffix, "utf-8");
@@ -76,21 +83,48 @@ export async function readUntil(
 
   let buffer = ensureBuffer(port.read(minBytesCount) as Buffer | string | null);
 
-  if (receiver && !buffer.equals(BUFFER_04)) {
+  if (receiver && buffer.length > 0 && !buffer.equals(BUFFER_04)) {
     receiver(buffer);
   }
   while (true) {
-    if (buffer.subarray(-exprectedSuffix.length).equals(exprectedSuffix)) {
-      break;
-    } else if (port.readable && port.readableLength > 0) {
+    if (
+      !blockCheck &&
+      buffer.subarray(-exprectedSuffix.length).equals(exprectedSuffix)
+    ) {
+      if (skip !== undefined && encounters < skip) {
+        encounters++;
+        // so it waits for a new byte to be written to the buffer before
+        // checking again for the suffix
+        blockCheck = true;
+      } else {
+        break;
+      }
+    }
+
+    if (port.readable && port.readableLength > 0) {
       const newData = ensureBuffer(port.read(1) as Buffer | string | null);
       // TODO: maybe also not relay the data if it is the suffix
-      if (receiver && !newData.equals(BUFFER_04)) {
+      if (receiver && !newData.equals(BUFFER_04) && newData.length > 0) {
+        blockCheck = false;
         receiver(newData);
-        // reduce memory usage by reassigning buffer
-        // instead of concatenating as the data has
-        // already been relayed to the receiver
-        buffer = newData;
+
+        // keep normal behavior if suffix is one byte
+        if (suffix.length === 1) {
+          // reduce memory usage by reassigning buffer
+          // instead of concatenating as the data has
+          // already been relayed to the receiver
+          buffer = newData;
+        } else {
+          // keep buffer at exprectedSuffix.length
+          if (newData.length > exprectedSuffix.length) {
+            buffer = newData.subarray(-exprectedSuffix.length);
+          } else {
+            buffer = Buffer.concat([
+              buffer.subarray(-exprectedSuffix.length + newData.length),
+              newData,
+            ]);
+          }
+        }
       } else {
         buffer = Buffer.concat([buffer, newData]);
       }
@@ -109,7 +143,7 @@ export async function readUntil(
     }
   }
 
-  return buffer;
+  return receiver ? buffer.subarray(-1) : buffer;
 }
 
 /**
@@ -144,7 +178,7 @@ export function stopRunningStuff(
  */
 export async function enterRawRepl(
   port: SerialPort,
-  softReset = true
+  softReset = false
 ): Promise<void> {
   // TODO: remove debug logs
   const errCb = (err: Error | null | undefined): void => {
@@ -180,6 +214,8 @@ export async function enterRawRepl(
     if (!data.endsWith("soft reboot\r\n")) {
       throw new Error("Error entering raw repl");
     }
+    // make sure any main.py and boot.py are not executed
+    stopRunningStuff(port, errCb);
   }
 
   // TODO: maybe only convert the endswith string into a byte array at compile time
@@ -201,10 +237,10 @@ export async function enterRawRepl(
  * provided, an error will be thrown instead.
  * @throws Error if the write operation fails and no error callback is provided.
  */
-export function exitRawRepl(
+export async function exitRawRepl(
   port: SerialPort,
   errorCb?: (err: Error | null | undefined) => void
-): void {
+): Promise<void> {
   port.write(
     "\r\x02",
     errorCb ??
@@ -214,6 +250,10 @@ export function exitRawRepl(
         }
       })
   );
+  // speed up by making sure flush is called
+  port.flush();
+
+  await readUntil(port, 6, "\r\n>>> ", 2);
 }
 
 /**
@@ -592,11 +632,13 @@ export async function fsExists(
  *
  * @param port The serial port to write to.
  * @param target The target directory to list the contents of.
+ * @param silentFail If true, the operation will not throw an error if it fails.
  * @returns A list of files and directories in the target directory.
  */
 export async function fsListContents(
   port: SerialPort,
-  target?: string
+  target?: string,
+  silentFail = true
 ): Promise<FileData[]> {
   const remotePath = target
     ? target.startsWith(":")
@@ -614,10 +656,12 @@ export async function fsListContents(
     );
 
     return parseListContentsPacket(result);
-  } catch (error) {
-    console.error(error);
-
-    return [];
+  } catch {
+    if (!silentFail) {
+      throw new Error("Error listing contents");
+    } else {
+      return [];
+    }
   }
 }
 
@@ -895,17 +939,53 @@ export async function fsPut(
   await executeCommand(port, "__pe_f.close()");
 }
 
-export async function fsMkdir(port: SerialPort, target: string): Promise<void> {
+/**
+ * Creates a directory on the connected board.
+ *
+ * (operation failing could mean that the directory already exists,
+ * that the parent directory does not exist or that
+ * the operation is not permitted)
+ *
+ * @param port The serial port to write to.
+ * @param target The target directory to create.
+ * @param silentFail If true, the operation will not throw an error if it fails.
+ * @throws An error if the operation fails and silentFail is false.
+ */
+export async function fsMkdir(
+  port: SerialPort,
+  target: string,
+  silentFail = false
+): Promise<void> {
   await executeCommand(
     port,
     `import os\nos.mkdir('${target}')`,
     undefined,
-    true
+    silentFail
   );
 }
 
-export async function fsRmdir(port: SerialPort, target: string): Promise<void> {
-  await executeCommand(port, `import os\nos.rmdir('${target}')`);
+/**
+ * Removes a directory from the connected board.
+ *
+ * (operation failing could mean that the directory is not empty, does not exist
+ * or cannot be removed for some other reason)
+ *
+ * @param port The serial port to write to.
+ * @param target The target directory to remove.
+ * @param silentFail If true, the operation will not throw an error if it fails.
+ * @throws An error if the operation fails and silentFail is false.
+ */
+export async function fsRmdir(
+  port: SerialPort,
+  target: string,
+  silentFail = false
+): Promise<void> {
+  await executeCommand(
+    port,
+    `import os\nos.rmdir('${target}')`,
+    undefined,
+    silentFail
+  );
 }
 
 /**
@@ -1146,10 +1226,7 @@ export async function retrieveTabCompletion(
 
   try {
     // exit raw repl
-    exitRawRepl(port);
-    // speed up by making sure flush is already running
-    port.flush();
-    await readUntil(port, 1, "\r\n>>> ", 2);
+    await exitRawRepl(port);
 
     // write prefix to get tab completion for
     port.write(prefixBin);
@@ -1220,15 +1297,13 @@ export async function interactiveCtrlD(
   emitter.on(PicoSerialEvents.relayInput, onRelayInput);
 
   try {
-    exitRawRepl(port);
-    // wait for 0.02
-    await new Promise(resolve => setTimeout(resolve, 20));
-    // discard any output
-    port.read();
+    await exitRawRepl(port);
 
-    port.write(Buffer.concat([BUFFER_CR, BUFFER_04]));
+    // Buffer.concat([BUFFER_CR, BUFFER_04])
+    port.write(BUFFER_04);
     relayOpen = true;
     // doesn't store response until return as receiver is provided
+    // either add ,2 as skip parameter or stop sending BUFFER_CR before BUFFER_04
     await readUntil(port, 1, "\n>>> ", 50, receiver);
 
     return true;
@@ -1245,3 +1320,15 @@ export async function interactiveCtrlD(
     await enterRawRepl(port, false);
   }
 }
+
+// doesn't work on the pico
+/**
+ * Resetting the filesystem deletes all files on the internal storage (not the SD card),
+ * and restores the files boot.py and main.py back to their original state after the next reset.
+ *
+ * @param port The serial port to write to.
+ * @throws Error if the command fails.
+ */
+//export async function fsFactoryReset(port: SerialPort): Promise<void> {
+//  await executeCommand(port, "import os\nos.mkfs('/flash')");
+//}

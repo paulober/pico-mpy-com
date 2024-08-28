@@ -2,7 +2,6 @@ import type FileData from "./fileData.js";
 
 export enum OperationResultType {
   none,
-  status,
   commandResponse,
   commandResult,
   listContents,
@@ -13,7 +12,6 @@ export enum OperationResultType {
 
 export type OperationResult =
   | OpResultNone
-  | OpResultStatus
   | OpResultCommandResponse
   | OpResultCommandResult
   | OpResultListContents
@@ -27,11 +25,6 @@ interface OpResult {
 
 export interface OpResultNone extends OpResult {
   type: OperationResultType.none;
-}
-
-export interface OpResultStatus extends OpResult {
-  type: OperationResultType.status;
-  status: boolean;
 }
 
 export interface OpResultCommandResponse extends OpResult {

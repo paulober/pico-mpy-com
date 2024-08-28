@@ -21,6 +21,7 @@ export enum CommandType {
   softReset,
   hardReset,
   ctrlD,
+  factoryResetFilesystem,
 }
 
 // TODO: it should not be possible to have every command type also accept args = {}
@@ -60,6 +61,7 @@ interface CommandArgsMapping {
   [CommandType.softReset]: object;
   [CommandType.hardReset]: { verbose?: boolean };
   [CommandType.ctrlD]: object;
+  [CommandType.factoryResetFilesystem]: object;
 }
 
 type RequiredArgs<T extends CommandType> = CommandArgsMapping[T];

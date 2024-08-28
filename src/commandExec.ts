@@ -4,7 +4,6 @@ import {
   enterRawRepl,
   evaluteExpression,
   executeCommand,
-  executeCommandInteractive,
   exitRawRepl,
   fsCalcFilesHashes,
   fsGet,
@@ -201,6 +200,9 @@ export async function executeAnyCommand(
 
       return executeCtrlDCommand(port, emitter, receiver);
 
+    //case CommandType.factoryResetFilesystem:
+    //  return executeFactoryResetFilesystemCommand(port);
+
     default:
       // "Unknown command type"
       return { type: OperationResultType.none };
@@ -283,7 +285,9 @@ export async function executeListContentsCommand(
   command: Command<CommandType.listContents>
 ): Promise<OperationResult> {
   ok(command.args.target);
-  const result = await fsListContents(port, command.args.target);
+  // TODO: possibility to remove silent fail and maybe check if directory not
+  // exists or is a file
+  const result = await fsListContents(port, command.args.target, true);
 
   return { type: OperationResultType.listContents, contents: result };
 }
@@ -327,22 +331,24 @@ export async function executeDeleteFilesCommand(
     try {
       await fsRemove(port, file);
     } catch (error) {
-      console.debug(
-        `Failed to delete file: ${file} with error: ${
-          error instanceof Error
-            ? error.message
-            : typeof error === "string"
-            ? error
-            : "Unknown error"
-        }`
-      );
-      failedDeletions++;
+      const message =
+        error instanceof Error
+          ? error.message
+          : typeof error === "string"
+          ? error
+          : "Unknown error";
+
+      // if the file does not exist, it is not considered a failed deletion
+      if (!message.includes("OSError: [Errno 2] ENOENT")) {
+        failedDeletions++;
+      }
     }
   }
 
-  // TODO: errors must be checked as if a file did not exist in the first place
-  // this operation should not be considered as failed
-  return { type: OperationResultType.status, status: failedDeletions === 0 };
+  return {
+    type: OperationResultType.commandResult,
+    result: failedDeletions === 0,
+  };
 }
 
 /**
@@ -368,26 +374,31 @@ export async function executeMkdirsCommand(
     try {
       await fsMkdir(port, folder);
     } catch (error) {
-      console.debug(
-        `Failed to create folder: ${folder} with error: ${
-          error instanceof Error
-            ? error.message
-            : typeof error === "string"
-            ? error
-            : "Unknown error"
-        }`
-      );
-      failedMkdirs++;
+      const message =
+        error instanceof Error
+          ? error.message
+          : typeof error === "string"
+          ? error
+          : "Unknown error";
+
+      // if the folder does already exist, it is not considered a failed mkdir
+      if (!message.includes("OSError: [Errno 17] EEXIST")) {
+        failedMkdirs++;
+      }
     }
   }
 
-  // TODO: errors must be checked as if a folder did already exist in the
-  // first place this operation should not be considered as failed
-  return { type: OperationResultType.status, status: failedMkdirs === 0 };
+  return {
+    type: OperationResultType.commandResult,
+    result: failedMkdirs === 0,
+  };
 }
 
 /**
  * Execute a command to delete directories on the board.
+ *
+ * (the rmdir command does also allow to delete files but is not intended for that,
+ * use the rmFileOrDirectory command instead)
  *
  * @param port The serial port where the board is connected to.
  * @param emitter Not used.
@@ -406,22 +417,24 @@ export async function executeRmdirsCommand(
     try {
       await fsRmdir(port, folder);
     } catch (error) {
-      console.debug(
-        `Failed to delete folder: ${folder} with error: ${
-          error instanceof Error
-            ? error.message
-            : typeof error === "string"
-            ? error
-            : "Unknown error"
-        }`
-      );
-      failedRmdirs++;
+      const message =
+        error instanceof Error
+          ? error.message
+          : typeof error === "string"
+          ? error
+          : "Unknown error";
+
+      // if the folder does not exist, it is not considered a failed rmdir
+      if (!message.includes("OSError: [Errno 2] ENOENT")) {
+        failedRmdirs++;
+      }
     }
   }
 
-  // TODO: errors must be checked as if a folder did not exist in the
-  // first place this operation should not be considered as failed
-  return { type: OperationResultType.status, status: failedRmdirs === 0 };
+  return {
+    type: OperationResultType.commandResult,
+    result: failedRmdirs === 0,
+  };
 }
 
 /**
@@ -444,23 +457,23 @@ export async function executeRmtreeRecursiveCommand(
     try {
       await fsRmdirRecursive(port, folder);
     } catch (error) {
-      // TODO: replace with proper logging in the call stack above
-      console.debug(
-        `Failed to delete folder: ${folder} with error: ${
-          error instanceof Error
-            ? error.message
-            : typeof error === "string"
-            ? error
-            : "Unknown error"
-        }`
-      );
-      failedRmdirs++;
+      const message =
+        error instanceof Error
+          ? error.message
+          : typeof error === "string"
+          ? error
+          : "Unknown error";
+
+      if (!message.includes("OSError: [Errno 2] ENOENT")) {
+        failedRmdirs++;
+      }
     }
   }
 
-  // TODO: errors must be checked as if a folder did not exist in the
-  // first place this operation should not be considered as failed
-  return { type: OperationResultType.status, status: failedRmdirs === 0 };
+  return {
+    type: OperationResultType.commandResult,
+    result: failedRmdirs === 0,
+  };
 }
 
 /**
@@ -493,13 +506,19 @@ export async function executeRmFileOrDirectoryCommand(
       await fsRemove(port, command.args.target);
     }
   } catch (error) {
-    // TODO: remove log
-    console.debug(error);
+    const message =
+      error instanceof Error
+        ? error.message
+        : typeof error === "string"
+        ? error
+        : "Unknown error";
 
-    return { type: OperationResultType.status, status: false };
+    if (!message.includes("OSError: [Errno 2] ENOENT")) {
+      return { type: OperationResultType.commandResult, result: false };
+    }
   }
 
-  return { type: OperationResultType.status, status: true };
+  return { type: OperationResultType.commandResult, result: true };
 }
 
 /**
@@ -536,7 +555,7 @@ export async function executeUploadFilesCommand(
       const dirPath = dirname(dest[1]);
       const folders = prependParentDirectories([dirPath]);
       for (const folder of folders) {
-        await fsMkdir(port, folder);
+        await fsMkdir(port, folder, true);
       }
 
       if (receiver) {
@@ -579,7 +598,10 @@ export async function executeUploadFilesCommand(
     }
   }
 
-  return { type: OperationResultType.status, status: failedUploads === 0 };
+  return {
+    type: OperationResultType.commandResult,
+    result: failedUploads === 0,
+  };
 }
 
 /**
@@ -686,7 +708,7 @@ export async function executeDownloadFilesCommand(
   }
 
   // TODO: also decide when status false
-  return { type: OperationResultType.status, status: true };
+  return { type: OperationResultType.commandResult, result: true };
 }
 
 export async function executeRunFileCommand(
@@ -700,9 +722,9 @@ export async function executeRunFileCommand(
   try {
     await runFile(port, command.args.files[0], emitter, receiver);
 
-    return { type: OperationResultType.status, status: true };
+    return { type: OperationResultType.commandResult, result: true };
   } catch {
-    return { type: OperationResultType.status, status: false };
+    return { type: OperationResultType.commandResult, result: false };
   }
 }
 
@@ -736,9 +758,9 @@ export async function executeSyncRtcTimeCommand(
   try {
     await syncRtc(port);
 
-    return { type: OperationResultType.status, status: true };
+    return { type: OperationResultType.commandResult, result: true };
   } catch {
-    return { type: OperationResultType.status, status: false };
+    return { type: OperationResultType.commandResult, result: false };
   }
 }
 
@@ -794,7 +816,7 @@ export async function executeUploadProjectCommand(
       .map(file => join(command.args.projectFolder, file));
 
     if (filesToUpload.length === 0) {
-      return { type: OperationResultType.status, status: true };
+      return { type: OperationResultType.commandResult, result: true };
     } else {
       return executeUploadFilesCommand(
         port,
@@ -812,7 +834,7 @@ export async function executeUploadProjectCommand(
       );
     }
   } catch {
-    return { type: OperationResultType.status, status: false };
+    return { type: OperationResultType.commandResult, result: false };
   }
 }
 
@@ -829,9 +851,9 @@ export function executeDoubleCtrlCCommand(port: SerialPort): OperationResult {
       errOccured = true;
     });
 
-    return { type: OperationResultType.status, status: !errOccured };
+    return { type: OperationResultType.commandResult, result: !errOccured };
   } catch {
-    return { type: OperationResultType.status, status: false };
+    return { type: OperationResultType.commandResult, result: false };
   }
 }
 
@@ -897,20 +919,26 @@ export async function executeRenameCommand(
   }
 }
 
+/**
+ * This does a soft reset but cancels the boot and main.py scripts immediately.
+ *
+ * @param port The serial port where the board is connected to.
+ * @returns The result of the operation.
+ */
 export async function executeSoftResetCommand(
   port: SerialPort
 ): Promise<OperationResult> {
   try {
     // or import sys; sys.exit() based on docs | but didn't work
     stopRunningStuff(port);
-    exitRawRepl(port);
+    await exitRawRepl(port);
     await enterRawRepl(port, true);
     // wait 0.1 seconds
     await new Promise(resolve => setTimeout(resolve, 100));
 
-    return { type: OperationResultType.status, status: true };
+    return { type: OperationResultType.commandResult, result: true };
   } catch {
-    return { type: OperationResultType.status, status: false };
+    return { type: OperationResultType.commandResult, result: false };
   }
 }
 
@@ -922,8 +950,25 @@ export async function executeCtrlDCommand(
   try {
     const result = await interactiveCtrlD(port, emitter, receiver);
 
-    return { type: OperationResultType.status, status: result };
+    return { type: OperationResultType.commandResult, result };
   } catch {
-    return { type: OperationResultType.status, status: false };
+    return { type: OperationResultType.commandResult, result: false };
   }
 }
+
+// doesn't work on the pico
+/*
+export async function executeFactoryResetFilesystemCommand(
+  port: SerialPort
+): Promise<OperationResult> {
+  try {
+    await fsFactoryReset(port);
+
+    return { type: OperationResultType.commandResult, result: true };
+  } catch (error) {
+    console.error(error);
+
+    return { type: OperationResultType.commandResult, result: false };
+  }
+}
+*/
