@@ -1,6 +1,7 @@
 import type { EventEmitter } from "events";
 import type { SerialPort } from "serialport";
 import {
+  CHUNK_SIZE,
   enterRawRepl,
   evaluteExpression,
   executeCommand,
@@ -40,6 +41,11 @@ import {
 } from "./packetProcessing.js";
 import { dirname, join, sep } from "path";
 import { scanFolder } from "./scanAndHash.js";
+import {
+  calculateTotalChunksLocal,
+  calculateTotalChunksRemote,
+  type ProgressCallback,
+} from "./progressCallback.js";
 
 /**
  * Execute any type of command on a MicroPython board connected to
@@ -56,7 +62,8 @@ export async function executeAnyCommand(
   emitter: EventEmitter,
   command: Command,
   receiver?: (data: Buffer) => void,
-  pythonInterpreterPath?: string
+  pythonInterpreterPath?: string,
+  progressCallback?: ProgressCallback
 ): Promise<OperationResult> {
   switch (command.type) {
     case CommandType.command:
@@ -137,7 +144,7 @@ export async function executeAnyCommand(
         port,
         emitter,
         command as Command<CommandType.uploadFiles>,
-        receiver
+        progressCallback
       );
 
     // TODO: implementation not finished
@@ -146,7 +153,7 @@ export async function executeAnyCommand(
         port,
         emitter,
         command as Command<CommandType.downloadFiles>,
-        receiver
+        progressCallback
       );
 
     case CommandType.getRtcTime:
@@ -160,7 +167,7 @@ export async function executeAnyCommand(
         port,
         emitter,
         command as Command<CommandType.uploadProject>,
-        receiver
+        progressCallback
       );
 
     case CommandType.getItemStat:
@@ -534,14 +541,11 @@ export async function executeUploadFilesCommand(
   port: SerialPort,
   emitter: EventEmitter,
   command: Command<CommandType.uploadFiles>,
-  receiver?: (data: Buffer) => void
+  progressCallback?: ProgressCallback
 ): Promise<OperationResult> {
   ok(command.args.files);
   ok(command.args.remote);
   const remote = sanitizeRemote(command.args.remote);
-  let totalFilesCount = command.args.files.length;
-  let currentFilePos = -1;
-  let lastFilePos = -1;
 
   let failedUploads = 0;
   //if (command.args.localBaseDir)
@@ -551,48 +555,71 @@ export async function executeUploadFilesCommand(
       command.args.files
     );
 
+    const totalChunksCount = progressCallback
+      ? await calculateTotalChunksLocal(
+          destinations.map(d => d[0]),
+          CHUNK_SIZE
+        )
+      : 0;
+    let chunksTransfered = 0;
+
     for (const dest of destinations) {
       const dirPath = dirname(dest[1]);
       const folders = prependParentDirectories([dirPath]);
-      for (const folder of folders) {
-        await fsMkdir(port, folder, true);
-      }
 
-      if (receiver) {
-        currentFilePos = destinations.indexOf(dest) + 1;
-        // TODO: add the progress callback
-        await fsPut(port, dest[0], remote + dirPath + "/");
-      } else {
-        await fsPut(port, dest[0], remote + dirPath + "/");
+      try {
+        for (const folder of folders) {
+          await fsMkdir(port, folder, true);
+        }
+
+        if (progressCallback) {
+          const ct = await fsPut(
+            port,
+            dest[0],
+            remote + dirPath + "/",
+            CHUNK_SIZE,
+            totalChunksCount,
+            chunksTransfered,
+            progressCallback
+          );
+          if (ct) {
+            chunksTransfered += ct;
+          }
+        } else {
+          await fsPut(port, dest[0], remote + dirPath + "/");
+        }
+      } catch {
+        failedUploads++;
       }
     }
   } else {
+    const totalChunksCount = progressCallback
+      ? await calculateTotalChunksLocal(command.args.files, CHUNK_SIZE)
+      : 0;
+    let chunksTransfered = 0;
+
     for (const file of command.args.files) {
       try {
-        if (receiver) {
+        if (progressCallback) {
           // TODO: add progress callback
-          await fsPut(port, file, remote);
+          const ct = await fsPut(
+            port,
+            file,
+            remote,
+            CHUNK_SIZE,
+            totalChunksCount,
+            chunksTransfered,
+            progressCallback
+          );
+
+          if (ct) {
+            chunksTransfered += ct;
+          }
         } else {
           await fsPut(port, file, remote);
         }
-
-        // TODO: for later use in progress callback
-        // eslint-disable-next-line @typescript-eslint/no-unused-vars
-        totalFilesCount = -1;
-        // eslint-disable-next-line @typescript-eslint/no-unused-vars
-        currentFilePos = -1;
-        // eslint-disable-next-line @typescript-eslint/no-unused-vars
-        lastFilePos = -1;
-      } catch (error) {
-        console.debug(
-          `Failed to upload file: ${file} with error: ${
-            error instanceof Error
-              ? error.message
-              : typeof error === "string"
-              ? error
-              : "Unknown error"
-          }`
-        );
+      } catch {
+        // TODO: log error, maybe though event emitter
         failedUploads++;
       }
     }
@@ -617,14 +644,10 @@ export async function executeDownloadFilesCommand(
   port: SerialPort,
   emitter: EventEmitter,
   command: Command<CommandType.downloadFiles>,
-  receiver?: (data: Buffer) => void
+  progressCallback?: ProgressCallback
 ): Promise<OperationResult> {
   ok(command.args.files);
   ok(command.args.local);
-
-  // TODO: for later use in progress callback
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars, prefer-const
-  let totalFilesCount = command.args.files.length;
 
   if (command.args.files.length > 1) {
     createFolderStructure(command.args.files, command.args.local);
@@ -634,6 +657,11 @@ export async function executeDownloadFilesCommand(
     }
 
     const folderFiles: Record<string, string[]> = {};
+
+    const totalChunksCount = progressCallback
+      ? await calculateTotalChunksRemote(port, command.args.files, CHUNK_SIZE)
+      : 0;
+    let chunksTransfered = 0;
 
     // group files by folder
     for (const file of command.args.files) {
@@ -648,7 +676,6 @@ export async function executeDownloadFilesCommand(
       folderFiles[folderPath].push(file);
     }
 
-    let currentFilePos = 0;
     for (const item of Object.entries(folderFiles)) {
       const folderPath = item[0];
       const files = item[1];
@@ -656,52 +683,58 @@ export async function executeDownloadFilesCommand(
       const target =
         join(command.args.local, folderPath.replace(/^[:/]+/, "")) + sep;
 
-      if (receiver) {
+      if (progressCallback) {
         // TODO: add progress callback
         for (const file of files) {
-          currentFilePos++;
           // add progress callback
           try {
-            await fsGet(port, file, target + file);
-          } catch (error) {
-            console.debug(
-              `Failed to download file: ${file} with error: ${
-                error instanceof Error
-                  ? error.message
-                  : typeof error === "string"
-                  ? error
-                  : "Unknown error"
-              }`
+            const ct = await fsGet(
+              port,
+              file,
+              target + file,
+              CHUNK_SIZE,
+              totalChunksCount,
+              chunksTransfered,
+              progressCallback
             );
+
+            if (ct) {
+              chunksTransfered += ct;
+            }
+          } catch {
+            // TODO: log error
             continue;
           }
         }
       } else {
         for (const file of files) {
-          // TODO: for later use in progress callback
-          // eslint-disable-next-line @typescript-eslint/no-unused-vars
-          currentFilePos++;
           try {
             await fsGet(port, file, target + file);
-          } catch (error) {
-            console.debug(
-              `Failed to download file: ${file} with error: ${
-                error instanceof Error
-                  ? error.message
-                  : typeof error === "string"
-                  ? error
-                  : "Unknown error"
-              }`
-            );
+          } catch {
+            // TODO: log error
             continue;
           }
         }
       }
     }
   } else {
-    if (receiver) {
+    if (progressCallback) {
+      const totalChunksCount = await calculateTotalChunksRemote(
+        port,
+        command.args.files,
+        CHUNK_SIZE
+      );
+
       // add progress callback
-      await fsGet(port, command.args.files[0], command.args.local);
+      await fsGet(
+        port,
+        command.args.files[0],
+        command.args.local,
+        CHUNK_SIZE,
+        totalChunksCount,
+        0,
+        progressCallback
+      );
     } else {
       await fsGet(port, command.args.files[0], command.args.local);
     }
@@ -711,6 +744,15 @@ export async function executeDownloadFilesCommand(
   return { type: OperationResultType.commandResult, result: true };
 }
 
+/**
+ * Run a local file on the board.
+ *
+ * @param port The serial port where the board is connected to.
+ * @param emitter Used for post execution-start user input relay.
+ * @param command The command to execute.
+ * @param receiver A function to receive the data as it comes in.
+ * @returns The result of the operation.
+ */
 export async function executeRunFileCommand(
   port: SerialPort,
   emitter: EventEmitter,
@@ -780,7 +822,7 @@ export async function executeUploadProjectCommand(
   port: SerialPort,
   emitter: EventEmitter,
   command: Command<CommandType.uploadProject>,
-  receiver?: (data: Buffer) => void
+  progressCallback?: ProgressCallback
 ): Promise<OperationResult> {
   // TODO: remove requirements for > 0 files count
   ok(command.args.projectFolder, "Project folder must be provided");
@@ -830,7 +872,7 @@ export async function executeUploadProjectCommand(
             localBaseDir: command.args.projectFolder,
           },
         },
-        receiver
+        progressCallback
       );
     }
   } catch {

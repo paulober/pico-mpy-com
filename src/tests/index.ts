@@ -74,6 +74,10 @@ const commands: Record<string, Command> = {
     aliases: ["up", "uploadProject"],
     description: "Uploads a project to the board.",
   },
+  downlaodProject: {
+    aliases: ["dp", "downloadProject"],
+    description: "Downloads a project from the board.",
+  },
   retrieveTabComp: {
     aliases: ["tc", "tabComp"],
     description: "Retrieves tab completion suggestions.",
@@ -270,7 +274,13 @@ async function handleCommand(command: string): Promise<void> {
             local => {
               rl.pause();
               serialCom
-                .downloadFiles(files.split(" "), local)
+                .downloadFiles(
+                  files.split(" "),
+                  local,
+                  (total: number, current: number, path: string) => {
+                    console.log(`Uploading ${current}/${total} - ${path}`);
+                  }
+                )
                 .then(() => {
                   console.log("Files downloaded successfully.");
                   resolve();
@@ -291,7 +301,14 @@ async function handleCommand(command: string): Promise<void> {
             remote => {
               rl.pause();
               serialCom
-                .uploadFiles(files.split(" "), remote)
+                .uploadFiles(
+                  files.split(" "),
+                  remote,
+                  undefined,
+                  (total: number, current: number, path: string) => {
+                    console.log(`Uploading ${current}/${total} - ${path}`);
+                  }
+                )
                 .then(() => {
                   console.log("Files uploaded successfully.");
                   resolve();
@@ -396,7 +413,10 @@ async function handleCommand(command: string): Promise<void> {
                     .uploadProject(
                       projectFolder,
                       fileTypes.split(" ").filter(item => item.length > 0),
-                      ignoredItems.split(" ").filter(item => item.length > 0)
+                      ignoredItems.split(" ").filter(item => item.length > 0),
+                      (total: number, current: number, path: string) => {
+                        console.log(`Uploading ${current}/${total} - ${path}`);
+                      }
                     )
                     .then(() => {
                       console.log("Project uploaded successfully.");
@@ -407,6 +427,27 @@ async function handleCommand(command: string): Promise<void> {
               );
             }
           );
+        });
+      });
+      break;
+
+    case "downlaodProject":
+    case "dp":
+      await new Promise<void>((resolve, reject) => {
+        rl.question("Enter the local folder to save the project: ", local => {
+          rl.pause();
+          serialCom
+            .downloadProject(
+              local,
+              (total: number, current: number, path: string) => {
+                console.log(`Downloading ${current}/${total} - ${path}`);
+              }
+            )
+            .then(() => {
+              console.log("Project downloaded successfully.");
+              resolve();
+            })
+            .catch(reject);
         });
       });
       break;

@@ -20,6 +20,7 @@ import {
   writeEncodedBufferToFile,
 } from "./escapeCoder.js";
 import { basename } from "path";
+import type { ProgressCallback } from "./progressCallback.js";
 
 // NOTE! it's encouraged to __pe_ as prefix for variables and functions defined
 // in the MicroPython REPL's global scope
@@ -36,6 +37,8 @@ const BUFFER_04 = Buffer.from("\x04");
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 const BUFFER_CR = Buffer.from("\r");
 const BUFFER_TAB = Buffer.from("\t");
+
+export const CHUNK_SIZE = 256;
 
 function ensureBuffer(data: Buffer | string | null): Buffer {
   if (data === null) {
@@ -742,11 +745,37 @@ def __pe_get_file_info(file_path):
   }
 }
 
+/**
+ * Gets the file size of a file on the connected board.
+ *
+ * NOTE: for more detials about the file size see fsStat,
+ * this is only ment to reduce the data sent over the serial port
+ * when querying the sizes of multiple files.
+ *
+ * @param port The serial port to write to.
+ * @param item The file to get the size of.
+ * @returns The size of the file or undefined if the file does not exist.
+ */
+export async function fsFileSize(
+  port: SerialPort,
+  item: string
+): Promise<number | undefined> {
+  const command = "import os\nprint(os.stat('" + item + "')[6])";
+
+  try {
+    const result = await executeCommand(port, command);
+
+    return parseInt(result);
+  } catch {
+    return undefined;
+  }
+}
+
 export async function fsCopy(
   port: SerialPort,
   source: string,
   dest: string,
-  chunkSize = 256,
+  chunkSize = CHUNK_SIZE,
   progressCallback?: (written: number, srcSize: number) => void
 ): Promise<void> {
   let srcSize = 0;
@@ -794,33 +823,42 @@ print(len(__pe_d))
   }
 }
 
+/**
+ * Download a file from the connected board.
+ *
+ * @param port The serial port to write to.
+ * @param source The source file on the board.
+ * @param dest The local destination file.
+ * @param chunkSize Size per chunk
+ * @param totalChunksCount Total number of chunks to transfer.
+ * @param chunksTransfered Count of chunks already transfered.
+ * @param progressCallback The callback to call with the progress of the operation.
+ * @throws An error if a command fails or the source file couldn't be found.
+ * @returns The number of chunks written if a progress callback is provided.
+ */
 export async function fsGet(
   port: SerialPort,
   source: string,
   dest: string,
-  chunkSize = 256,
-  progressCallback?: (written: number, srcSize: number) => void
-): Promise<void> {
-  let srcSize = 0;
-  let written = 0;
+  chunkSize = CHUNK_SIZE,
+  totalChunksCount = 0,
+  chunksTransfered = 0,
+  progressCallback?: ProgressCallback
+): Promise<number | undefined> {
+  let chunksWritten = chunksTransfered;
   const filename = basename(source);
-  const target = dest.endsWith(filename) ? dest : dest + "/" + filename;
-
-  if (progressCallback) {
-    const stat = await fsStat(port, source);
-    if (stat === undefined) {
-      throw new Error("Source file not found");
-    }
-    srcSize = stat.size;
-  }
-
-  await executeCommand(
-    port,
-    `__pe_f=open('${source}','rb')\n__pe_r=__pe_f.read`
+  // TODO: fix multi slash issue at the beginning of the path to reduce computation
+  const target = normalizeSlashes(
+    dest.endsWith(filename) ? dest : dest + "/" + filename
   );
 
   let destFile: FileHandle | undefined = undefined;
   try {
+    await executeCommand(
+      port,
+      `__pe_f=open('${source}','rb')\n__pe_r=__pe_f.read`
+    );
+
     // open dest file as write binary local
     destFile = await hostFsOpen(target, "w");
     while (true) {
@@ -860,16 +898,26 @@ export async function fsGet(
       await writeEncodedBufferToFile(encodedData.toString("ascii"), destFile);
 
       if (progressCallback) {
-        written += buffer.length;
-        progressCallback(written, srcSize);
+        chunksWritten++;
+        progressCallback(totalChunksCount, chunksWritten, source);
       }
     }
   } finally {
     // close the file
     await destFile?.close();
+    // TODO: maybe needs to be catched
+    await executeCommand(port, "__pe_f.close()");
   }
 
-  await executeCommand(port, "__pe_f.close()");
+  if (progressCallback) {
+    return chunksWritten - chunksTransfered;
+  }
+
+  return;
+}
+
+function normalizeSlashes(path: string): string {
+  return path.replace(/\/+/g, "/");
 }
 
 /**
@@ -880,34 +928,33 @@ export async function fsGet(
  * @param dest The destination file on the board.
  * @param chunkSize The size of the chunks to send.
  * @param progressCallback The callback to call with the progress of the operation.
+ * @throws An error if a command fails or the source file couldn't be found.
+ * @returns The number of chunks written if a progress callback is provided.
  */
 export async function fsPut(
   port: SerialPort,
   source: string,
   dest: string,
-  chunkSize = 256,
-  progressCallback?: (written: number, srcSize: number) => void
-): Promise<void> {
-  let srcSize = 0;
-  let written = 0;
+  chunkSize = CHUNK_SIZE,
+  totalChunks = 0,
+  chunksTransfered = 0,
+  progressCallback?: ProgressCallback
+): Promise<number | undefined> {
+  let chunksWritten = chunksTransfered;
 
   const filename = basename(source);
-  const target = dest.endsWith(filename) ? dest : dest + "/" + filename;
-
-  // TODO: only open file once and in the try catch
-  if (progressCallback) {
-    const stat = await hostFsOpen(source, "r");
-    srcSize = (await stat.stat()).size;
-    await stat.close();
-  }
-
-  await executeCommand(
-    port,
-    `__pe_f=open('${target}','wb')\n__pe_w=__pe_f.write`
+  // TODO: fix multi slash issue at the beginning of the path to reduce computation
+  const target = normalizeSlashes(
+    dest.endsWith(filename) ? dest : dest + "/" + filename
   );
 
   let srcFile: FileHandle | undefined = undefined;
   try {
+    await executeCommand(
+      port,
+      `__pe_f=open('${target}','wb')\n__pe_w=__pe_f.write`
+    );
+
     // open source file as read binary local
     srcFile = await hostFsOpen(source, "r");
     if (srcFile === undefined) {
@@ -927,16 +974,22 @@ export async function fsPut(
       );
 
       if (progressCallback) {
-        written += bytesRead;
-        progressCallback(written, srcSize);
+        chunksWritten++;
+        progressCallback(totalChunks, chunksWritten, target);
       }
     }
   } finally {
     // close the file
     await srcFile?.close();
+    // TODO: myabe needs to be catched
+    await executeCommand(port, "__pe_f.close()");
   }
 
-  await executeCommand(port, "__pe_f.close()");
+  if (progressCallback) {
+    return chunksWritten - chunksTransfered;
+  }
+
+  return;
 }
 
 /**

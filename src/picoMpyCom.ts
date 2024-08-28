@@ -9,6 +9,8 @@ import {
   OperationResultType,
 } from "./operationResult.js";
 import { executeAnyCommand } from "./commandExec.js";
+import { join } from "path";
+import type { ProgressCallback } from "./progressCallback.js";
 
 /**
  * Singleton class for handling serial communication with a MicroPython device.
@@ -206,6 +208,7 @@ export class PicoMpyCom extends EventEmitter {
     this.serialPort.open();
   }
 
+  // TODO: maybe move callbacks into Commands
   /**
    * The main method for enqueueing operations to be executed in the queue.
    * Possible long waiting time for Promise resolution.
@@ -218,7 +221,8 @@ export class PicoMpyCom extends EventEmitter {
     command: Command,
     receiver?: (data: Buffer) => void,
     readyStateCb?: (open: boolean) => void,
-    pythonInterpreterPath?: string
+    pythonInterpreterPath?: string,
+    progressCallback?: ProgressCallback
   ): Promise<OperationResult> {
     if (!this.serialPort || this.serialPortClosing) {
       //throw new Error("Serial port not open");
@@ -256,7 +260,8 @@ export class PicoMpyCom extends EventEmitter {
             this,
             command,
             receiver,
-            pythonInterpreterPath
+            pythonInterpreterPath,
+            progressCallback
           );
 
           if (command.type !== CommandType.hardReset) {
@@ -284,6 +289,11 @@ export class PicoMpyCom extends EventEmitter {
     });
   }
 
+  /**
+   * Executes the next operation in the queue if there is one.
+   *
+   * @returns The result of the operation.
+   */
   private executeNextOperation(): void {
     const operation = this.queue.dequeue();
     if (operation === undefined) {
@@ -298,6 +308,11 @@ export class PicoMpyCom extends EventEmitter {
     this.emit(PicoSerialEvents.startOperation, operation);
   }
 
+  /**
+   * Checks if the serial port is disconnected.
+   *
+   * @returns True if the serial port is disconnected, false otherwise.
+   */
   private isPortDisconnected(): boolean {
     return (
       !this.serialPort || this.serialPort.closed || this.serialPort.destroyed
@@ -425,13 +440,13 @@ export class PicoMpyCom extends EventEmitter {
    *
    * @param files Download files from the board.
    * @param target Target directory on the local machine.
-   * @param follow The callback to receive the data from the board.
+   * @param progressCallback The callback to receive the progress of the operation.
    * @returns The result of the operation.
    */
   public async downloadFiles(
     files: string[],
     target: string,
-    follow?: (data: Buffer) => void
+    progressCallback?: ProgressCallback
   ): Promise<OperationResult> {
     if (this.isPortDisconnected()) {
       return { type: OperationResultType.none };
@@ -442,7 +457,41 @@ export class PicoMpyCom extends EventEmitter {
         type: CommandType.downloadFiles,
         args: { files, local: target },
       },
-      follow
+      undefined,
+      undefined,
+      undefined,
+      progressCallback
+    );
+  }
+
+  // TODO: move into it's own command to reduce queueing overhead
+  /**
+   * Download all files from the board into a project folder.
+   *
+   * @param projectRoot The root folder of the project.
+   * @param progressCallback The callback to receive the progress of the operation.
+   * @returns The result of the operation.
+   */
+  public async downloadProject(
+    projectRoot: string,
+    progressCallback?: ProgressCallback
+  ): Promise<OperationResult> {
+    if (this.isPortDisconnected()) {
+      return { type: OperationResultType.none };
+    }
+
+    const contents = await this.listContentsRecursive(projectRoot);
+
+    if (contents.type !== OperationResultType.listContents) {
+      return { type: OperationResultType.none };
+    }
+
+    const filePaths = contents.contents.map(file => file.path);
+
+    return this.downloadFiles(
+      filePaths,
+      filePaths.length > 1 ? projectRoot : join(projectRoot, filePaths[0]),
+      progressCallback
     );
   }
 
@@ -455,14 +504,14 @@ export class PicoMpyCom extends EventEmitter {
    * @param localBaseDir Local base directory for the files.
    * It will be used for relative placement of the files on the board
    * relative to the target. Used to keep the directory structure.
-   * @param follow The callback to receive the data from the board.
+   * @param progressCallback The callback to receive the progress of the operation.
    * @returns The result of the operation.
    */
   public async uploadFiles(
     files: string[],
     target: string,
     localBaseDir?: string,
-    follow?: (data: Buffer) => void
+    progressCallback?: ProgressCallback
   ): Promise<OperationResult> {
     if (this.isPortDisconnected()) {
       return { type: OperationResultType.none };
@@ -473,7 +522,10 @@ export class PicoMpyCom extends EventEmitter {
         type: CommandType.uploadFiles,
         args: { files, remote: target, localBaseDir },
       },
-      follow
+      undefined,
+      undefined,
+      undefined,
+      progressCallback
     );
   }
 
@@ -563,14 +615,14 @@ export class PicoMpyCom extends EventEmitter {
    * Empty array uploads all files.
    * @param ignoredItems Items to ignore during upload.
    * Relative paths and allows certain wildcards (to be documented).
-   * @param follow The callback to receive the data from the board.
+   * @param progressCallback The callback to receive the progress of the operation.
    * @returns The result of the operation.
    */
   public async uploadProject(
     projectFolder: string,
     fileTypes: string[],
     ignoredItems: string[],
-    follow?: (data: Buffer) => void
+    progressCallback?: ProgressCallback
   ): Promise<OperationResult> {
     if (this.isPortDisconnected()) {
       return { type: OperationResultType.none };
@@ -581,7 +633,10 @@ export class PicoMpyCom extends EventEmitter {
         type: CommandType.uploadProject,
         args: { projectFolder, fileTypes, ignoredItems },
       },
-      follow
+      undefined,
+      undefined,
+      undefined,
+      progressCallback
     );
   }
 
