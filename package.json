@@ -1,16 +1,20 @@
 {
-  "name": "pico-serial-com",
-  "version": "0.0.1",
+  "name": "pico-mpy-com",
+  "version": "0.0.2",
   "author": "paulober",
   "publisher": "raspberry-pi",
-  "description": "A nodejs library for communicating with devices MicroPython running the MicroPython firmware.",
+  "description": "A nodejs library for communicating with USD devices running the MicroPython firmware.",
   "license": "Apache-2.0",
   "publishConfig": {
     "registry": "https://npm.pkg.github.com"
   },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/paulober/pico-mpy-com.git"
+  },
   "type": "module",
   "engines": {
-    "node": ">=18.18"
+    "node": ">=20.14"
   },
   "os": [
     "win32",
@@ -24,9 +28,9 @@
   "module": "./dist/index.cjs",
   "types": "./dist/index.d.ts",
   "markdown": "github",
-  "minimumNodeVersion": 18,
+  "minimumNodeVersion": 20,
   "scripts": {
-    "prepack": "pnpm build",
+    "prepack": "rimraf dist && pnpm build",
     "build": "rollup -c --environment BUILD:production",
     "build-tests": "rollup -c --environment BUILD:development",
     "lint": "eslint src",
@@ -42,22 +46,23 @@
     "serialport": "^12.0.0"
   },
   "devDependencies": {
-    "@eslint/js": "^9.9.0",
+    "@eslint/js": "^9.9.1",
     "@rollup/plugin-commonjs": "^26.0.1",
     "@rollup/plugin-json": "^6.1.0",
     "@rollup/plugin-node-resolve": "^15.2.3",
     "@rollup/plugin-terser": "^0.4.4",
     "@rollup/plugin-typescript": "^11.1.6",
     "@serialport/bindings-interface": "^1.2.2",
-    "@types/eslint": "^9",
-    "@types/node": "18.17.x",
-    "eslint": "^9.9.0",
+    "@types/eslint": "^9.6.x",
+    "@types/node": "20.14.0",
+    "eslint": "^9.9.x",
     "eslint-config-prettier": "^9.1.0",
     "globals": "^15.9.0",
-    "rollup": "^4.21.0",
-    "tslib": "^2.6.3",
+    "rimraf": "^6.0.1",
+    "rollup": "^4.21.1",
+    "tslib": "^2.7.0",
     "typescript": "^5.5.4",
-    "typescript-eslint": "^8.2.0"
+    "typescript-eslint": "^8.3.0"
   },
-  "packageManager": "pnpm@9.7.1+sha512.faf344af2d6ca65c4c5c8c2224ea77a81a5e8859cbc4e06b1511ddce2f0151512431dd19e6aff31f2c6a8f5f2aced9bd2273e1fed7dd4de1868984059d2c4247"
+  "packageManager": "pnpm@9.9.0+sha512.60c18acd138bff695d339be6ad13f7e936eea6745660d4cc4a776d5247c540d0edee1a563695c183a66eb917ef88f2b4feb1fc25f32a7adcadc7aaf3438e99c1"
 }
