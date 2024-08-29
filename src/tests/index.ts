@@ -122,6 +122,10 @@ const commands: Record<string, Command> = {
     aliases: ["efc", "execute"],
     description: "Executes a command and waits for the result.",
   },
+  hardReset: {
+    aliases: ["hr", "hardReset"],
+    description: "Performs a hard reset.",
+  },
   exit: {
     aliases: ["e", "exit"],
     description: "Exits the program.",
@@ -408,21 +412,47 @@ async function handleCommand(command: string): Promise<void> {
                 // eslint-disable-next-line max-len
                 "Enter the ignored items (paths relative to the project folder): ",
                 ignoredItems => {
-                  rl.pause();
-                  serialCom
-                    .uploadProject(
-                      projectFolder,
-                      fileTypes.split(" ").filter(item => item.length > 0),
-                      ignoredItems.split(" ").filter(item => item.length > 0),
-                      (total: number, current: number, path: string) => {
-                        console.log(`Uploading ${current}/${total} - ${path}`);
-                      }
-                    )
-                    .then(() => {
-                      console.log("Project uploaded successfully.");
-                      resolve();
-                    })
-                    .catch(reject);
+                  rl.question(
+                    // eslint-disable-next-line max-len
+                    "Do you want to interrupt after a certain number of chunks? (0 for no): ",
+                    interruptAfterChunks => {
+                      rl.pause();
+                      const interruptAfterChunksNum =
+                        parseInt(interruptAfterChunks);
+                      serialCom
+                        .uploadProject(
+                          projectFolder,
+                          fileTypes.split(" ").filter(item => item.length > 0),
+                          ignoredItems
+                            .split(" ")
+                            .filter(item => item.length > 0),
+                          (total: number, current: number, path: string) => {
+                            if (
+                              interruptAfterChunksNum > 0 &&
+                              current >= interruptAfterChunksNum
+                            ) {
+                              setImmediate(
+                                serialCom.interruptExecution.bind(serialCom)
+                              );
+                            }
+                            console.log(
+                              `Uploading ${current}/${total} - ${path}`
+                            );
+                          }
+                        )
+                        .then(data => {
+                          if (data.type === OperationResultType.commandResult) {
+                            console.log(
+                              data.result
+                                ? "Project uploaded successfully."
+                                : "Project upload failed."
+                            );
+                          }
+                          resolve();
+                        })
+                        .catch(reject);
+                    }
+                  );
                 }
               );
             }
@@ -731,6 +761,24 @@ async function handleCommand(command: string): Promise<void> {
           }
         );
       });
+      break;
+
+    case "hardReset":
+    case "hr":
+      {
+        // TODO: test and fix hardreset
+        rl.pause();
+        const data = await serialCom.hardReset();
+        console.log(
+          data.type === OperationResultType.commandResult
+            ? data.result
+              ? "Board reset successfully."
+              : "Board reset failed."
+            : "Invalid response."
+        );
+        rl.prompt();
+        rl.resume();
+      }
       break;
 
     case "exit":

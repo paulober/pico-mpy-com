@@ -157,10 +157,10 @@ export async function executeAnyCommand(
       );
 
     case CommandType.getRtcTime:
-      return executeGetRtcTimeCommand(port);
+      return executeGetRtcTimeCommand(port, emitter);
 
     case CommandType.syncRtc:
-      return executeSyncRtcTimeCommand(port);
+      return executeSyncRtcTimeCommand(port, emitter);
 
     case CommandType.uploadProject:
       return executeUploadProjectCommand(
@@ -173,11 +173,16 @@ export async function executeAnyCommand(
     case CommandType.getItemStat:
       return executeGetItemStatCommand(
         port,
-        command as Command<CommandType.getItemStat>
+        command as Command<CommandType.getItemStat>,
+        emitter
       );
 
     case CommandType.rename:
-      return executeRenameCommand(port, command as Command<CommandType.rename>);
+      return executeRenameCommand(
+        port,
+        command as Command<CommandType.rename>,
+        emitter
+      );
 
     case CommandType.runFile:
       ok(receiver, "Receiver must be provided for run file command");
@@ -195,7 +200,6 @@ export async function executeAnyCommand(
     case CommandType.tabComplete:
       return executeTabCompleteCommand(
         port,
-        emitter,
         command as Command<CommandType.tabComplete>
       );
 
@@ -216,7 +220,6 @@ export async function executeAnyCommand(
   }
 }
 
-// TODO: remove all console.debug
 // these proxies are used to
 // - transform thrown errors into OperationResult objects
 // - handle multi command operations like uploading a project
@@ -234,7 +237,12 @@ export async function executeCommandCommand(
   receiver?: (data: Buffer) => void
 ): Promise<OperationResult> {
   try {
-    const result = await executeCommand(port, command.args.command, receiver);
+    const result = await executeCommand(
+      port,
+      command.args.command,
+      emitter,
+      receiver
+    );
 
     return receiver
       ? { type: OperationResultType.commandResult, result: true }
@@ -252,6 +260,17 @@ export async function executeCommandCommand(
   }
 }
 
+/**
+ * Execute a command to evaluate an expression on the board.
+ *
+ * @param port The serial port where the board is connected to.
+ * @param emitter The event emitter to listen for events.
+ * @param command The command to execute.
+ * @param receiver The function to receive the data as it comes in.
+ * @param pythonInterpreterPath The path to a local Python interpreter use for
+ * expression wrapping.
+ * @returns The result of the operation.
+ */
 export async function executeExpressionCommand(
   port: SerialPort,
   emitter: EventEmitter,
@@ -294,7 +313,7 @@ export async function executeListContentsCommand(
   ok(command.args.target);
   // TODO: possibility to remove silent fail and maybe check if directory not
   // exists or is a file
-  const result = await fsListContents(port, command.args.target, true);
+  const result = await fsListContents(port, emitter, command.args.target, true);
 
   return { type: OperationResultType.listContents, contents: result };
 }
@@ -313,7 +332,11 @@ export async function executeListContentsRecursiveCommand(
   command: Command<CommandType.listContentsRecursive>
 ): Promise<OperationResult> {
   ok(command.args.target);
-  const result = await fsListContentsRecursive(port, command.args.target);
+  const result = await fsListContentsRecursive(
+    port,
+    emitter,
+    command.args.target
+  );
 
   return { type: OperationResultType.listContents, contents: result };
 }
@@ -336,7 +359,7 @@ export async function executeDeleteFilesCommand(
   let failedDeletions = 0;
   for (const file of command.args.files) {
     try {
-      await fsRemove(port, file);
+      await fsRemove(port, file, emitter);
     } catch (error) {
       const message =
         error instanceof Error
@@ -348,6 +371,9 @@ export async function executeDeleteFilesCommand(
       // if the file does not exist, it is not considered a failed deletion
       if (!message.includes("OSError: [Errno 2] ENOENT")) {
         failedDeletions++;
+      } else if (message.toLowerCase().includes("interrupted")) {
+        // don't try to delete more files if the operation was interrupted
+        break;
       }
     }
   }
@@ -379,7 +405,7 @@ export async function executeMkdirsCommand(
 
   for (const folder of folders) {
     try {
-      await fsMkdir(port, folder);
+      await fsMkdir(port, folder, emitter);
     } catch (error) {
       const message =
         error instanceof Error
@@ -391,6 +417,9 @@ export async function executeMkdirsCommand(
       // if the folder does already exist, it is not considered a failed mkdir
       if (!message.includes("OSError: [Errno 17] EEXIST")) {
         failedMkdirs++;
+      } else if (message.toLowerCase().includes("interrupted")) {
+        // don't try to create more folders if the operation was interrupted
+        break;
       }
     }
   }
@@ -422,7 +451,7 @@ export async function executeRmdirsCommand(
   let failedRmdirs = 0;
   for (const folder of command.args.folders) {
     try {
-      await fsRmdir(port, folder);
+      await fsRmdir(port, folder, emitter);
     } catch (error) {
       const message =
         error instanceof Error
@@ -434,6 +463,9 @@ export async function executeRmdirsCommand(
       // if the folder does not exist, it is not considered a failed rmdir
       if (!message.includes("OSError: [Errno 2] ENOENT")) {
         failedRmdirs++;
+      } else if (message.toLowerCase().includes("interrupted")) {
+        // don't try to delete more folders if the operation was interrupted
+        break;
       }
     }
   }
@@ -462,7 +494,7 @@ export async function executeRmtreeRecursiveCommand(
   let failedRmdirs = 0;
   for (const folder of command.args.folders) {
     try {
-      await fsRmdirRecursive(port, folder);
+      await fsRmdirRecursive(port, folder, emitter);
     } catch (error) {
       const message =
         error instanceof Error
@@ -473,6 +505,9 @@ export async function executeRmtreeRecursiveCommand(
 
       if (!message.includes("OSError: [Errno 2] ENOENT")) {
         failedRmdirs++;
+      } else if (message.toLowerCase().includes("interrupted")) {
+        // don't try to delete more folders if the operation was interrupted
+        break;
       }
     }
   }
@@ -501,16 +536,16 @@ export async function executeRmFileOrDirectoryCommand(
   const recursive = command.args.recursive ?? false;
 
   try {
-    const isDir = await fsIsDir(port, command.args.target);
+    const isDir = await fsIsDir(port, command.args.target, emitter);
 
     if (isDir) {
       if (recursive) {
-        await fsRmdirRecursive(port, command.args.target);
+        await fsRmdirRecursive(port, command.args.target, emitter);
       } else {
-        await fsRmdir(port, command.args.target);
+        await fsRmdir(port, command.args.target, emitter);
       }
     } else {
-      await fsRemove(port, command.args.target);
+      await fsRemove(port, command.args.target, emitter);
     }
   } catch (error) {
     const message =
@@ -547,7 +582,17 @@ export async function executeUploadFilesCommand(
   ok(command.args.remote);
   const remote = sanitizeRemote(command.args.remote);
 
+  let interrupted = false;
   let failedUploads = 0;
+
+  // does need its own interrupt handler compared to
+  // the put calles it does to catch interrupts fired
+  // between the put calls
+  const onInterrupt = (): void => {
+    interrupted = true;
+  };
+  emitter.once("interrupt", onInterrupt);
+
   //if (command.args.localBaseDir)
   if (command.args.localBaseDir) {
     const destinations = standardizePath(
@@ -567,9 +612,35 @@ export async function executeUploadFilesCommand(
       const dirPath = dirname(dest[1]);
       const folders = prependParentDirectories([dirPath]);
 
+      if (interrupted) {
+        break;
+      }
+
       try {
         for (const folder of folders) {
-          await fsMkdir(port, folder, true);
+          if (interrupted) {
+            break;
+          }
+
+          try {
+            await fsMkdir(port, folder, emitter, false);
+          } catch (error) {
+            const message =
+              error instanceof Error
+                ? error.message
+                : typeof error === "string"
+                ? error
+                : "Unknown error";
+            if (message.toLowerCase().includes("interrupted")) {
+              // don't try to create more folders if the operation was interrupted
+              interrupted = true;
+              break;
+            }
+          }
+        }
+        // don't even attempt to upload the file if the operation was interrupted
+        if (interrupted) {
+          break;
         }
 
         if (progressCallback) {
@@ -577,6 +648,7 @@ export async function executeUploadFilesCommand(
             port,
             dest[0],
             remote + dirPath + "/",
+            emitter,
             CHUNK_SIZE,
             totalChunksCount,
             chunksTransfered,
@@ -586,10 +658,29 @@ export async function executeUploadFilesCommand(
             chunksTransfered += ct;
           }
         } else {
-          await fsPut(port, dest[0], remote + dirPath + "/");
+          await fsPut(port, dest[0], remote + dirPath + "/", emitter);
         }
-      } catch {
+
+        if (interrupted) {
+          break;
+        }
+      } catch (error) {
         failedUploads++;
+        const message =
+          error instanceof Error
+            ? error.message
+            : typeof error === "string"
+            ? error
+            : "Unknown error";
+        if (message.toLowerCase().includes("interrupted")) {
+          // don't try to upload more files if the operation was interrupted
+          interrupted = true;
+          break;
+        }
+      }
+
+      if (interrupted) {
+        break;
       }
     }
   } else {
@@ -601,11 +692,11 @@ export async function executeUploadFilesCommand(
     for (const file of command.args.files) {
       try {
         if (progressCallback) {
-          // TODO: add progress callback
           const ct = await fsPut(
             port,
             file,
             remote,
+            emitter,
             CHUNK_SIZE,
             totalChunksCount,
             chunksTransfered,
@@ -616,18 +707,35 @@ export async function executeUploadFilesCommand(
             chunksTransfered += ct;
           }
         } else {
-          await fsPut(port, file, remote);
+          await fsPut(port, file, remote, emitter);
         }
-      } catch {
+      } catch (error) {
         // TODO: log error, maybe though event emitter
         failedUploads++;
+
+        const message =
+          error instanceof Error
+            ? error.message
+            : typeof error === "string"
+            ? error
+            : "Unknown error";
+
+        if (message.toLowerCase().includes("interrupted")) {
+          // don't try to upload more files if the operation was interrupted
+          interrupted = true;
+          break;
+        }
+      }
+
+      if (interrupted) {
+        break;
       }
     }
   }
 
   return {
     type: OperationResultType.commandResult,
-    result: failedUploads === 0,
+    result: failedUploads === 0 && !interrupted,
   };
 }
 
@@ -649,6 +757,15 @@ export async function executeDownloadFilesCommand(
   ok(command.args.files);
   ok(command.args.local);
 
+  let interrupted = false;
+  // does need its own interrupt handler compared to
+  // the get calles it does to catch interrupts fired
+  // between the get calls
+  const onInterrupt = (): void => {
+    interrupted = true;
+  };
+  emitter.once("interrupt", onInterrupt);
+
   if (command.args.files.length > 1) {
     createFolderStructure(command.args.files, command.args.local);
 
@@ -658,8 +775,17 @@ export async function executeDownloadFilesCommand(
 
     const folderFiles: Record<string, string[]> = {};
 
+    if (interrupted) {
+      return { type: OperationResultType.commandResult, result: false };
+    }
+
     const totalChunksCount = progressCallback
-      ? await calculateTotalChunksRemote(port, command.args.files, CHUNK_SIZE)
+      ? await calculateTotalChunksRemote(
+          port,
+          command.args.files,
+          CHUNK_SIZE,
+          emitter
+        )
       : 0;
     let chunksTransfered = 0;
 
@@ -677,6 +803,10 @@ export async function executeDownloadFilesCommand(
     }
 
     for (const item of Object.entries(folderFiles)) {
+      if (interrupted) {
+        break;
+      }
+
       const folderPath = item[0];
       const files = item[1];
 
@@ -692,6 +822,7 @@ export async function executeDownloadFilesCommand(
               port,
               file,
               target + file,
+              emitter,
               CHUNK_SIZE,
               totalChunksCount,
               chunksTransfered,
@@ -701,7 +832,18 @@ export async function executeDownloadFilesCommand(
             if (ct) {
               chunksTransfered += ct;
             }
-          } catch {
+          } catch (error) {
+            const message =
+              error instanceof Error
+                ? error.message
+                : typeof error === "string"
+                ? error
+                : "Unknown error";
+            if (message.toLowerCase().includes("interrupted")) {
+              interrupted = true;
+              break;
+            }
+
             // TODO: log error
             continue;
           }
@@ -709,39 +851,60 @@ export async function executeDownloadFilesCommand(
       } else {
         for (const file of files) {
           try {
-            await fsGet(port, file, target + file);
-          } catch {
+            await fsGet(port, file, target + file, emitter);
+          } catch (error) {
+            const message =
+              error instanceof Error
+                ? error.message
+                : typeof error === "string"
+                ? error
+                : "Unknown error";
+            if (message.toLowerCase().includes("interrupted")) {
+              interrupted = true;
+              break;
+            }
+
             // TODO: log error
             continue;
+          }
+
+          if (interrupted) {
+            break;
           }
         }
       }
     }
   } else {
-    if (progressCallback) {
-      const totalChunksCount = await calculateTotalChunksRemote(
-        port,
-        command.args.files,
-        CHUNK_SIZE
-      );
+    try {
+      if (progressCallback) {
+        const totalChunksCount = await calculateTotalChunksRemote(
+          port,
+          command.args.files,
+          CHUNK_SIZE,
+          emitter
+        );
 
-      // add progress callback
-      await fsGet(
-        port,
-        command.args.files[0],
-        command.args.local,
-        CHUNK_SIZE,
-        totalChunksCount,
-        0,
-        progressCallback
-      );
-    } else {
-      await fsGet(port, command.args.files[0], command.args.local);
+        // add progress callback
+        await fsGet(
+          port,
+          command.args.files[0],
+          command.args.local,
+          emitter,
+          CHUNK_SIZE,
+          totalChunksCount,
+          0,
+          progressCallback
+        );
+      } else {
+        await fsGet(port, command.args.files[0], command.args.local, emitter);
+      }
+    } catch {
+      return { type: OperationResultType.commandResult, result: false };
     }
   }
 
   // TODO: also decide when status false
-  return { type: OperationResultType.commandResult, result: true };
+  return { type: OperationResultType.commandResult, result: !interrupted };
 }
 
 /**
@@ -777,10 +940,11 @@ export async function executeRunFileCommand(
  * @returns The result of the operation.
  */
 export async function executeGetRtcTimeCommand(
-  port: SerialPort
+  port: SerialPort,
+  emitter: EventEmitter
 ): Promise<OperationResult> {
   try {
-    const result = await getRtcTime(port);
+    const result = await getRtcTime(port, emitter);
 
     return { type: OperationResultType.getRtcTime, time: result };
   } catch {
@@ -795,10 +959,11 @@ export async function executeGetRtcTimeCommand(
  * @returns The result of the operation.
  */
 export async function executeSyncRtcTimeCommand(
-  port: SerialPort
+  port: SerialPort,
+  emitter: EventEmitter
 ): Promise<OperationResult> {
   try {
-    await syncRtc(port);
+    await syncRtc(port, emitter);
 
     return { type: OperationResultType.commandResult, result: true };
   } catch {
@@ -846,7 +1011,8 @@ export async function executeUploadProjectCommand(
       Array.from(localHashes.keys(), file =>
         // clear out any Windows style and duble slashes
         file.replace("\\", "/").replace("//", "/")
-      )
+      ),
+      emitter
     );
 
     const filesToUpload = [...localHashes.keys()]
@@ -904,13 +1070,11 @@ export function executeDoubleCtrlCCommand(port: SerialPort): OperationResult {
  * Execute a command to get tab completions for a given code snippet.
  *
  * @param port The serial port where the board is connected to.
- * @param emitter Not used.
  * @param command The command to execute.
  * @returns The result of the operation.
  */
 export async function executeTabCompleteCommand(
   port: SerialPort,
-  emitter: EventEmitter,
   command: Command<CommandType.tabComplete>
 ): Promise<OperationResult> {
   ok(command.args.code);
@@ -928,14 +1092,23 @@ export async function executeTabCompleteCommand(
   }
 }
 
+/**
+ * Executes getItemStat commands.
+ *
+ * @param port The serial port where the board is connected to.
+ * @param command The command to execute.
+ * @param emitter An event emitter to listen for interrupts.
+ * @returns The result of the operation.
+ */
 export async function executeGetItemStatCommand(
   port: SerialPort,
-  command: Command<CommandType.getItemStat>
+  command: Command<CommandType.getItemStat>,
+  emitter: EventEmitter
 ): Promise<OperationResult> {
   ok(command.args.item);
 
   try {
-    const result = await fsStat(port, command.args.item);
+    const result = await fsStat(port, emitter, command.args.item);
 
     return { type: OperationResultType.getItemStat, stat: result ?? null };
   } catch {
@@ -944,15 +1117,24 @@ export async function executeGetItemStatCommand(
   }
 }
 
+/**
+ * Executes rename commands.
+ *
+ * @param port The serial port where the board is connected to.
+ * @param command The command to execute.
+ * @param emitter An event emitter to listen for interrupts.
+ * @returns The result of the operation.
+ */
 export async function executeRenameCommand(
   port: SerialPort,
-  command: Command<CommandType.rename>
+  command: Command<CommandType.rename>,
+  emitter: EventEmitter
 ): Promise<OperationResult> {
   ok(command.args.item);
   ok(command.args.target);
 
   try {
-    await fsRename(port, command.args.item, command.args.target);
+    await fsRename(port, command.args.item, command.args.target, emitter);
 
     // TODO: or return .status or remove .status type
     return { type: OperationResultType.commandResult, result: true };
@@ -984,6 +1166,14 @@ export async function executeSoftResetCommand(
   }
 }
 
+/**
+ * Executes a ctrl-d command.
+ *
+ * @param port The serial port where the board is connected to.
+ * @param emitter An event emitter to listen for interrupts and to relay inputs.
+ * @param receiver A callback to receive the data as it comes in.
+ * @returns The result of the operation.
+ */
 export async function executeCtrlDCommand(
   port: SerialPort,
   emitter: EventEmitter,

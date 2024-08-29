@@ -161,6 +161,7 @@ export function stopRunningStuff(
   port: SerialPort,
   errorCb?: (err: Error | null | undefined) => void
 ): void {
+  // TODO: useage must be checked as most don't care about this could throw
   // send CTRL-C twice to stop any running program
   port.write(
     "\r\x03\x03",
@@ -478,23 +479,55 @@ export async function executeCommandWithoutResult(
  * @param command The command to execute.
  * @param timeout The timeout in seconds to wait for the output.
  * @param receiver If provided, the function will be called
+ * @param atomic If true, the operation will not be interrupted by an interrupt event.
  * with the data received from the serial port when it arrives.
- * @throws Error if the write operation fails.
  * @returns
  */
 export async function executeCommandWithResult(
   port: SerialPort,
   command: string,
+  emitter: EventEmitter,
   timeout: number | null = 10,
-  receiver?: (data: Buffer) => void
+  receiver?: (data: Buffer) => void,
+  atomic = false
 ): Promise<{
   data: string;
   error: string;
 }> {
-  // call exe without result and then call follow
-  await executeCommandWithoutResult(port, command);
+  let interrupted = false;
+  const onInterrupt = (): void => {
+    // TODO: check if 150ms is enough
+    // wait for 150ms because it could be that the command is currently transfered
+    setTimeout(() => {
+      try {
+        interrupted = true;
+        stopRunningStuff(port);
+      } catch {
+        // ignore
+      }
+    }, 150);
+  };
 
-  return follow(port, timeout, receiver);
+  try {
+    if (!atomic) {
+      emitter.once(PicoSerialEvents.interrupt, onInterrupt);
+    }
+
+    // call exe without result and then call follow
+    await executeCommandWithoutResult(port, command);
+
+    return follow(port, timeout, receiver);
+  } catch {
+    if (interrupted) {
+      return { data: "", error: "Interrupted" };
+    } else {
+      return { data: "", error: "Error executing command" };
+    }
+  } finally {
+    if (!atomic) {
+      emitter.off(PicoSerialEvents.interrupt, onInterrupt);
+    }
+  }
 }
 
 /**
@@ -504,22 +537,28 @@ export async function executeCommandWithResult(
  * @param command The command to execute.
  * @param receiver If provided, the function will be called
  * with the data received from the serial port when it arrives.
+ * @param silentFail If true, the operation will not throw an error if it fails.
+ * @param atomic If true, the operation will not be interrupted by an interrupt event.
  * @throws Error if the write operation fails or the command returns an error.
  * @returns
  */
 export async function executeCommand(
   port: SerialPort,
   command: string,
+  emitter: EventEmitter,
   receiver?: (data: Buffer) => void,
-  silentFail?: boolean
+  silentFail?: boolean,
+  atomic = false
 ): Promise<string> {
   // TODO: remove timing
   const result = await executeCommandWithResult(
     port,
     command,
+    emitter,
     // will use default timeout
     undefined,
-    receiver
+    receiver,
+    atomic
   );
 
   if (!silentFail && result.error !== "") {
@@ -584,19 +623,22 @@ export async function executeCommandInteractive(
     }
     port.write(data, err => {
       if (err) {
-        throw new Error("Error evaluating expression");
+        emitter.emit(PicoSerialEvents.relayInputError, err);
       }
     });
   };
 
-  emitter.on(PicoSerialEvents.relayInput, onRelayInput);
-
   try {
+    emitter.on(PicoSerialEvents.relayInput, onRelayInput);
+    // the execute command cares about the interrupt handling
+    //emitter.once(PicoSerialEvents.interrupt, onInterrupt);
+
     relayOpen = true;
     // doesn't store response until return as receiver is provided
     const { error } = await executeCommandWithResult(
       port,
       command instanceof Buffer ? command.toString("utf-8") : command,
+      emitter,
       null,
       receiver
     );
@@ -610,6 +652,7 @@ export async function executeCommandInteractive(
       ? error
       : "Unknown error";
   } finally {
+    relayOpen = false;
     // remove listener
     emitter.off(PicoSerialEvents.relayInput, onRelayInput);
   }
@@ -619,10 +662,11 @@ export async function executeCommandInteractive(
 
 export async function fsExists(
   port: SerialPort,
+  emitter: EventEmitter,
   target = ""
 ): Promise<boolean> {
   try {
-    await executeCommand(port, `import os\nos.stat('${target}')`);
+    await executeCommand(port, `import os\nos.stat('${target}')`, emitter);
 
     return true;
   } catch {
@@ -640,6 +684,7 @@ export async function fsExists(
  */
 export async function fsListContents(
   port: SerialPort,
+  emitter: EventEmitter,
   target?: string,
   silentFail = true
 ): Promise<FileData[]> {
@@ -655,7 +700,8 @@ export async function fsListContents(
       `import os\nfor f in os.ilistdir(${
         remotePath ? `"${remotePath}"` : ""
       }):\n` +
-        " print('{:12} {}{}'.format(f[3]if len(f)>3 else 0,f[0],'/'if f[1]&0x4000 else ''))"
+        " print('{:12} {}{}'.format(f[3]if len(f)>3 else 0,f[0],'/'if f[1]&0x4000 else ''))",
+      emitter
     );
 
     return parseListContentsPacket(result);
@@ -677,6 +723,7 @@ export async function fsListContents(
  */
 export async function fsListContentsRecursive(
   port: SerialPort,
+  emitter: EventEmitter,
   target = ""
 ): Promise<FileData[]> {
   // keep indentation as small as possible
@@ -696,7 +743,7 @@ del __pe_recursive_ls
 `;
 
   try {
-    const result = await executeCommand(port, cmd);
+    const result = await executeCommand(port, cmd, emitter);
 
     return parseListContentsPacket(result);
   } catch {
@@ -706,6 +753,7 @@ del __pe_recursive_ls
 
 export async function fsStat(
   port: SerialPort,
+  emitter: EventEmitter,
   item: string
 ): Promise<FileData | undefined> {
   // keep indentation as small as possible
@@ -728,7 +776,8 @@ def __pe_get_file_info(file_path):
       command +
         `__pe_get_file_info('${item}')\n` +
         // cleanup memory
-        "del __pe_get_file_info"
+        "del __pe_get_file_info",
+      emitter
     );
 
     const statResponse = parseStatJson(result);
@@ -758,12 +807,13 @@ def __pe_get_file_info(file_path):
  */
 export async function fsFileSize(
   port: SerialPort,
+  emitter: EventEmitter,
   item: string
 ): Promise<number | undefined> {
   const command = "import os\nprint(os.stat('" + item + "')[6])";
 
   try {
-    const result = await executeCommand(port, command);
+    const result = await executeCommand(port, command, emitter);
 
     return parseInt(result);
   } catch {
@@ -775,13 +825,14 @@ export async function fsCopy(
   port: SerialPort,
   source: string,
   dest: string,
+  emitter: EventEmitter,
   chunkSize = CHUNK_SIZE,
   progressCallback?: (written: number, srcSize: number) => void
 ): Promise<void> {
   let srcSize = 0;
   let written = 0;
   if (progressCallback) {
-    const stat = await fsStat(port, source);
+    const stat = await fsStat(port, emitter, source);
     if (stat === undefined) {
       throw new Error("Source file not found");
     }
@@ -794,7 +845,8 @@ __pe_fr=open('${source}','rb')
 __pe_r=__pe_fr.read
 __pe_fw=open('${dest}','wb')
 __pe_w=__pe_fw.write
-`
+`,
+    emitter
   );
 
   while (true) {
@@ -804,7 +856,8 @@ __pe_w=__pe_fw.write
 __pe_d=__pe_r(${chunkSize})
 __pe_w(__pe_d)
 print(len(__pe_d))
-`
+`,
+      emitter
     );
     if (sizeStr.length === 0) {
       throw new Error("Error copying file");
@@ -819,7 +872,7 @@ print(len(__pe_d))
       progressCallback(written, srcSize);
     }
 
-    await executeCommand(port, "__pe_fr.close()\n__pe_fw.close()");
+    await executeCommand(port, "__pe_fr.close()\n__pe_fw.close()", emitter);
   }
 }
 
@@ -833,19 +886,26 @@ print(len(__pe_d))
  * @param totalChunksCount Total number of chunks to transfer.
  * @param chunksTransfered Count of chunks already transfered.
  * @param progressCallback The callback to call with the progress of the operation.
- * @throws An error if a command fails or the source file couldn't be found.
+ * @throws An error if a command fails, the source file couldn't be found or the operation was interrupted.
  * @returns The number of chunks written if a progress callback is provided.
  */
 export async function fsGet(
   port: SerialPort,
   source: string,
   dest: string,
+  emitter: EventEmitter,
   chunkSize = CHUNK_SIZE,
   totalChunksCount = 0,
   chunksTransfered = 0,
   progressCallback?: ProgressCallback
 ): Promise<number | undefined> {
   let chunksWritten = chunksTransfered;
+  let interrupted = false;
+
+  const onInterrupt = (): void => {
+    interrupted = true;
+  };
+
   const filename = basename(source);
   // TODO: fix multi slash issue at the beginning of the path to reduce computation
   const target = normalizeSlashes(
@@ -854,18 +914,30 @@ export async function fsGet(
 
   let destFile: FileHandle | undefined = undefined;
   try {
+    emitter.once(PicoSerialEvents.interrupt, onInterrupt);
     await executeCommand(
       port,
-      `__pe_f=open('${source}','rb')\n__pe_r=__pe_f.read`
+      `__pe_f=open('${source}','rb')\n__pe_r=__pe_f.read`,
+      emitter,
+      undefined,
+      undefined,
+      true
     );
 
     // open dest file as write binary local
     destFile = await hostFsOpen(target, "w");
     while (true) {
       let buffer = Buffer.alloc(0);
-      await executeCommand(port, `print(__pe_r(${chunkSize}))`, data => {
-        buffer = Buffer.concat([buffer, data]);
-      });
+      await executeCommand(
+        port,
+        `print(__pe_r(${chunkSize}))`,
+        emitter,
+        data => {
+          buffer = Buffer.concat([buffer, data]);
+        },
+        undefined,
+        true
+      );
       const expectedEnding = Buffer.from("\r\n\x04", "utf8");
       // assert that the buffer ends with the expected sequence
       const bufferEndsWith = buffer
@@ -899,14 +971,33 @@ export async function fsGet(
 
       if (progressCallback) {
         chunksWritten++;
-        progressCallback(totalChunksCount, chunksWritten, source);
+        // call progress callback non-blocking
+        setImmediate(() =>
+          progressCallback(totalChunksCount, chunksWritten, source)
+        );
+      }
+
+      if (interrupted) {
+        break;
       }
     }
   } finally {
     // close the file
     await destFile?.close();
-    // TODO: maybe needs to be catched
-    await executeCommand(port, "__pe_f.close()");
+    emitter.off(PicoSerialEvents.interrupt, onInterrupt);
+    await executeCommand(
+      port,
+      "__pe_f.close()",
+      emitter,
+      undefined,
+      true,
+      true
+    );
+  }
+
+  // notify caller that the operation was interrupted
+  if (interrupted) {
+    throw new Error("Interrupted");
   }
 
   if (progressCallback) {
@@ -928,19 +1019,26 @@ function normalizeSlashes(path: string): string {
  * @param dest The destination file on the board.
  * @param chunkSize The size of the chunks to send.
  * @param progressCallback The callback to call with the progress of the operation.
- * @throws An error if a command fails or the source file couldn't be found.
+ * @throws An error if a command fails, the source file couldn't be found or the operation was interrupted.
  * @returns The number of chunks written if a progress callback is provided.
  */
 export async function fsPut(
   port: SerialPort,
   source: string,
   dest: string,
+  emitter: EventEmitter,
   chunkSize = CHUNK_SIZE,
   totalChunks = 0,
   chunksTransfered = 0,
   progressCallback?: ProgressCallback
 ): Promise<number | undefined> {
   let chunksWritten = chunksTransfered;
+  let interrupted = false;
+  // the full operation is atomic therefore interruptions cannot be handled or enforced
+  // on the board side and only be checked at certain points
+  const onInterrupt = (): void => {
+    interrupted = true;
+  };
 
   const filename = basename(source);
   // TODO: fix multi slash issue at the beginning of the path to reduce computation
@@ -950,9 +1048,14 @@ export async function fsPut(
 
   let srcFile: FileHandle | undefined = undefined;
   try {
+    emitter.once(PicoSerialEvents.interrupt, onInterrupt);
     await executeCommand(
       port,
-      `__pe_f=open('${target}','wb')\n__pe_w=__pe_f.write`
+      `__pe_f=open('${target}','wb')\n__pe_w=__pe_f.write`,
+      emitter,
+      undefined,
+      undefined,
+      true
     );
 
     // open source file as read binary local
@@ -963,26 +1066,51 @@ export async function fsPut(
     while (true) {
       const buffer = Buffer.alloc(chunkSize);
       const { bytesRead } = await srcFile.read(buffer, 0, chunkSize);
-      if (bytesRead === 0) {
+      // TODO: maybe not allow interruptions at this point
+      if (bytesRead === 0 || interrupted) {
         break;
       }
 
       // write buffer to file
       await executeCommand(
         port,
-        `__pe_w(b'${encodeStringToEscapedBin(buffer, bytesRead)}')`
+        `__pe_w(b'${encodeStringToEscapedBin(buffer, bytesRead)}')`,
+        emitter,
+        undefined,
+        undefined,
+        true
       );
 
       if (progressCallback) {
         chunksWritten++;
-        progressCallback(totalChunks, chunksWritten, target);
+        // call progress callback non-blocking
+        setImmediate(() =>
+          progressCallback(totalChunks, chunksWritten, target)
+        );
+      }
+
+      // means end of file
+      if (bytesRead < chunkSize || interrupted) {
+        break;
       }
     }
   } finally {
     // close the file
     await srcFile?.close();
-    // TODO: myabe needs to be catched
-    await executeCommand(port, "__pe_f.close()");
+    emitter.off(PicoSerialEvents.interrupt, onInterrupt);
+    await executeCommand(
+      port,
+      "__pe_f.close()",
+      emitter,
+      undefined,
+      true,
+      true
+    );
+  }
+
+  // notify caller that the operation was interrupted
+  if (interrupted) {
+    throw new Error("Interrupted");
   }
 
   if (progressCallback) {
@@ -1007,11 +1135,13 @@ export async function fsPut(
 export async function fsMkdir(
   port: SerialPort,
   target: string,
+  emitter: EventEmitter,
   silentFail = false
 ): Promise<void> {
   await executeCommand(
     port,
     `import os\nos.mkdir('${target}')`,
+    emitter,
     undefined,
     silentFail
   );
@@ -1031,11 +1161,13 @@ export async function fsMkdir(
 export async function fsRmdir(
   port: SerialPort,
   target: string,
+  emitter: EventEmitter,
   silentFail = false
 ): Promise<void> {
   await executeCommand(
     port,
     `import os\nos.rmdir('${target}')`,
+    emitter,
     undefined,
     silentFail
   );
@@ -1051,7 +1183,8 @@ export async function fsRmdir(
  */
 export async function fsRmdirRecursive(
   port: SerialPort,
-  target: string
+  target: string,
+  emitter: EventEmitter
 ): Promise<void> {
   //const commandShort = `import os; def __pe_deltree(target): [__pe_deltree((current:=target + d) if target == '/' else (current:=target + '/' + d)) or os.remove(current) for d in os.listdir(target)]; os.rmdir(target) if target != '/' else None; __pe_deltree('${target}'); del __pe_deltree`;
 
@@ -1070,32 +1203,62 @@ __pe_deltree('${target}')
 del __pe_deltree
 `;
 
-  await executeCommand(port, command);
+  await executeCommand(port, command, emitter);
 }
 
 export async function fsRemove(
   port: SerialPort,
-  target: string
+  target: string,
+  emitter: EventEmitter
 ): Promise<void> {
-  await executeCommand(port, `import os\nos.remove('${target}')`);
+  await executeCommand(port, `import os\nos.remove('${target}')`, emitter);
 }
 
 export async function fsRename(
   port: SerialPort,
   oldName: string,
-  newName: string
+  newName: string,
+  emitter: EventEmitter
 ): Promise<void> {
   // TODO: maybe guard with try except
-  await executeCommand(port, `import os\nos.rename('${oldName}','${newName}')`);
+  await executeCommand(
+    port,
+    `import os\nos.rename('${oldName}','${newName}')`,
+    emitter
+  );
 }
 
-export async function fsTouch(port: SerialPort, target: string): Promise<void> {
-  await executeCommand(port, `__pe_f=open('${target}','a')\n__pe_f.close()`);
+/**
+ * Creates an empty file on the connected board.
+ *
+ * @param port The serial port to write to.
+ * @param target The target file to create.
+ * @param emitter The event emitter to listen to for interrupt events.
+ */
+export async function fsTouch(
+  port: SerialPort,
+  target: string,
+  emitter: EventEmitter
+): Promise<void> {
+  await executeCommand(
+    port,
+    `__pe_f=open('${target}','a')\n__pe_f.close()`,
+    emitter
+  );
 }
 
+/**
+ * Checks if a path on the connected board points to a directory.
+ *
+ * @param port The serial port to write to.
+ * @param target The target path to check.
+ * @param emitter The event emitter to listen to for interrupt events.
+ * @returns
+ */
 export async function fsIsDir(
   port: SerialPort,
-  target: string
+  target: string,
+  emitter: EventEmitter
 ): Promise<boolean> {
   const command = `
 import os
@@ -1108,7 +1271,11 @@ print(__pe_is_dir('${target}'))
 del __pe_is_dir
 `;
 
-  const { data, error } = await executeCommandWithResult(port, command);
+  const { data, error } = await executeCommandWithResult(
+    port,
+    command,
+    emitter
+  );
 
   if (error !== "") {
     throw new Error(error);
@@ -1124,11 +1291,13 @@ del __pe_is_dir
  *
  * @param port The serial port to write to.
  * @param files The file to calculate the hash of.
+ * @param emitter The event emitter to listen to for interrupt events.
  * @returns The hashes of the files.
  */
 export async function fsCalcFilesHashes(
   port: SerialPort,
-  files: string[]
+  files: string[],
+  emitter: EventEmitter
 ): Promise<HashResponse[]> {
   const command = `
 import uhashlib
@@ -1153,13 +1322,17 @@ def __pe_hash_file(file):
   print(json.dumps({"file": file, "error": f"{e.__class__.__name__}: {e}"}))
 `;
 
-  await executeCommand(port, command);
+  await executeCommand(port, command, emitter);
 
   const hashes: HashResponse[] = [];
   for (const file of files) {
     try {
       // TODO: maybe it could fail for too large files
-      const hashJson = await executeCommand(port, `__pe_hash_file('${file}')`);
+      const hashJson = await executeCommand(
+        port,
+        `__pe_hash_file('${file}')`,
+        emitter
+      );
       const hashResponse = parseHashJson(hashJson);
       // no one cares if hash.error is defined as this mostlikely means the file does not exist
       if (!hashResponse.error) {
@@ -1171,7 +1344,14 @@ def __pe_hash_file(file):
     }
   }
 
-  await executeCommand(port, "del __pe_hash_file");
+  await executeCommand(
+    port,
+    "del __pe_hash_file",
+    emitter,
+    undefined,
+    true,
+    true
+  );
 
   return hashes;
 }
@@ -1193,7 +1373,8 @@ export async function runFile(
     if (file.endsWith(".mpy") && data[0] === 77) {
       await executeCommand(
         port,
-        `_injected_buf=b'${encodeStringToEscapedBin(data, data.length)}'`
+        `_injected_buf=b'${encodeStringToEscapedBin(data, data.length)}'`,
+        emitter
       );
       data = Buffer.from(injectedImportHookCode, "utf-8");
     }
@@ -1215,9 +1396,13 @@ export async function runFile(
  * If no the board does not support the RTC api it will throw an error.
  *
  * @param port The serial port to write to.
+ * @param emitter The event emitter to listen to for interrupt events.
  * @throws An error if the RTC api is not available or the command fails.
  */
-export async function syncRtc(port: SerialPort): Promise<void> {
+export async function syncRtc(
+  port: SerialPort,
+  emitter: EventEmitter
+): Promise<void> {
   const now = new Date();
 
   const command = `
@@ -1226,7 +1411,7 @@ __pe_RTC().datetime(${dateToRp2Datetime(now)})
 del __pe_RTC
 `;
 
-  await executeCommand(port, command);
+  await executeCommand(port, command, emitter);
 }
 
 /**
@@ -1234,18 +1419,22 @@ del __pe_RTC
  * If the board does not support the RTC api it will throw an error.
  *
  * @param port The serial port to write to.
+ * @param emitter The event emitter to listen to for interrupt events.
  * @returns The current time from the RTC of the board.
  * If response cannot be parsed, null is returned.
  * @throws An error if the RTC api is not available or the command fails.
  */
-export async function getRtcTime(port: SerialPort): Promise<Date | null> {
+export async function getRtcTime(
+  port: SerialPort,
+  emitter: EventEmitter
+): Promise<Date | null> {
   const command = `
 from machine import RTC as __pe_RTC
 print(__pe_RTC().datetime())
 del __pe_RTC
 `;
 
-  const result = await executeCommand(port, command);
+  const result = await executeCommand(port, command, emitter);
 
   return rp2DatetimeToDate(result);
 }
@@ -1253,19 +1442,24 @@ del __pe_RTC
 // TODO: needs more work to be able to continue connection and receive output
 export async function hardReset(
   port: SerialPort,
+  emitter: EventEmitter,
   receiver?: (data: Buffer) => void
 ): Promise<void> {
   stopRunningStuff(port);
   await executeCommand(
     port,
     "\rimport machine\nmachine.reset()",
+    emitter,
     receiver,
+    true,
     true
   );
 }
 
 /**
  * Retrieves the tab completion for a given prefix from the connected board.
+ *
+ * (Note: currently not interruptable, but short timeouts are used)
  *
  * @param port The serial port to write to.
  * @param prefix The prefix to get tab completion for.
@@ -1319,7 +1513,9 @@ export async function retrieveTabCompletion(
 }
 
 /**
- *
+ * Soft resets the connected board in normal REPL mode and listents to the output,
+ * before reentering raw REPL mode.
+ * (interactively)
  *
  * @param port The serial port to write to.
  * @param emitter The event emitter to listen to for relayInput events.
@@ -1342,14 +1538,24 @@ export async function interactiveCtrlD(
     }
     port.write(data, err => {
       if (err) {
-        throw new Error("Error evaluating expression");
+        emitter.emit(PicoSerialEvents.relayInputError, err);
       }
     });
   };
-
-  emitter.on(PicoSerialEvents.relayInput, onRelayInput);
+  const onInterrupt = (): void => {
+    // 150ms as command may still being sent
+    setTimeout(() => {
+      try {
+        stopRunningStuff(port);
+      } catch {
+        // ignore
+      }
+    }, 150);
+  };
 
   try {
+    emitter.on(PicoSerialEvents.relayInput, onRelayInput);
+    emitter.once(PicoSerialEvents.interrupt, onInterrupt);
     await exitRawRepl(port);
 
     // Buffer.concat([BUFFER_CR, BUFFER_04])
@@ -1367,6 +1573,7 @@ export async function interactiveCtrlD(
     return false;
   } finally {
     // remove listener
+    emitter.off(PicoSerialEvents.interrupt, onInterrupt);
     emitter.off(PicoSerialEvents.relayInput, onRelayInput);
 
     // reenter raw repl

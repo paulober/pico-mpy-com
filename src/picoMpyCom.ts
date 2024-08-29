@@ -69,6 +69,10 @@ export class PicoMpyCom extends EventEmitter {
    * @param port The port to connect to.
    */
   public async openSerialPort(port: string): Promise<void> {
+    if (this.serialPort?.path === port) {
+      return;
+    }
+
     if (this.serialPort) {
       await this.closeSerialPort();
     }
@@ -79,6 +83,9 @@ export class PicoMpyCom extends EventEmitter {
       autoOpen: true,
       lock: true,
     });
+
+    // TODO: make sure after disconnect these don't exist multiple times if a
+    // new connection is established
 
     // instead of returning the result we trigger an event if the ports opens successfully
     this.serialPort.on("open", this.onPortOpened.bind(this));
@@ -148,6 +155,7 @@ export class PicoMpyCom extends EventEmitter {
     if (this.serialPort) {
       if (!force) {
         this.serialPortClosing = true;
+        // TODO: maybe use interruptExecution also
         // wait for the queue to finish
         await new Promise<void>(resolve => {
           const checkQueue = (): void => {
@@ -159,13 +167,18 @@ export class PicoMpyCom extends EventEmitter {
           };
           checkQueue();
         });
+      } else {
+        // interrupt still gives some kind of operations a chance terminate on their own terms
+        this.interruptExecution();
+        // TODO: maybe wait a short delay before closing
       }
       // close the port
       this.serialPort.close();
       // wait 0.5 seconds for the port to close and listeners to be notified
       await new Promise(resolve => setTimeout(resolve, 500));
+      // TODO: not sure if this is necessary as it would cause some overhead on clients
       // remove all listeners
-      this.serialPort.removeAllListeners();
+      //this.serialPort.removeAllListeners();
       // reset state
       this.serialPort = undefined;
       this.operationInProgress = true;
@@ -716,6 +729,19 @@ export class PicoMpyCom extends EventEmitter {
       type: CommandType.softReset,
       args: {},
     });
+  }
+
+  /**
+   * Interrupts the execution of most kinds of operations if currently in progress.
+   */
+  public interruptExecution(): void {
+    // don't mess with hard resets
+    if (this.isPortDisconnected() || this.resetInProgress) {
+      return;
+    }
+
+    // hope it takes effect
+    this.emit(PicoSerialEvents.interrupt);
   }
 
   /**

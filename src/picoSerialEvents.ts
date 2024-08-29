@@ -3,8 +3,11 @@ export enum PicoSerialEvents {
   portClosed = "portClosed",
   portError = "portError",
 
-  dataReceived = "dataReceived",
+  // need to be subscribed to by operation executors
+  interrupt = "interrupt",
 
   startOperation = "startOperation",
   relayInput = "relayInput",
+  // triggered if relaying input fails
+  relayInputError = "relayInputError",
 }

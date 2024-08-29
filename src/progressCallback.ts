@@ -1,6 +1,7 @@
 import { stat } from "fs/promises";
 import type { SerialPort } from "serialport";
 import { fsFileSize } from "./serialHelper.js";
+import type { EventEmitter } from "events";
 
 /**
  * The callback function that is used to communicate the progress of a file transfer.
@@ -41,12 +42,13 @@ export async function calculateTotalChunksLocal(
 export async function calculateTotalChunksRemote(
   port: SerialPort,
   filePaths: string[],
-  chunkSize: number
+  chunkSize: number,
+  emitter: EventEmitter
 ): Promise<number> {
   let totalChunks = 0;
 
   for (const filePath of filePaths) {
-    const fileSize = await fsFileSize(port, filePath);
+    const fileSize = await fsFileSize(port, emitter, filePath);
     if (fileSize === undefined) {
       continue;
     }
