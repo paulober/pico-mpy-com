@@ -465,19 +465,39 @@ async function handleCommand(command: string): Promise<void> {
     case "dp":
       await new Promise<void>((resolve, reject) => {
         rl.question("Enter the local folder to save the project: ", local => {
-          rl.pause();
-          serialCom
-            .downloadProject(
-              local,
-              (total: number, current: number, path: string) => {
-                console.log(`Downloading ${current}/${total} - ${path}`);
+          rl.question("Enter the remote folder to download from: ", remote => {
+            rl.question(
+              "Enter the file types to download (none means all): ",
+              fileTypes => {
+                rl.question("Enter the ignored items: ", ignoredItems => {
+                  rl.pause();
+                  serialCom
+                    .downloadProject(
+                      local,
+                      remote,
+                      fileTypes.split(" ").filter(item => item.length > 0),
+                      ignoredItems.split(" ").filter(item => item.length > 0),
+                      (total: number, current: number, path: string) => {
+                        console.log(
+                          `Downloading ${current}/${total} - ${path}`
+                        );
+                      }
+                    )
+                    .then(data => {
+                      if (data.type === OperationResultType.commandResult) {
+                        console.log(
+                          data.result
+                            ? "Project downloaded successfully."
+                            : "Project download failed."
+                        );
+                      }
+                      resolve();
+                    })
+                    .catch(reject);
+                });
               }
-            )
-            .then(() => {
-              console.log("Project downloaded successfully.");
-              resolve();
-            })
-            .catch(reject);
+            );
+          });
         });
       });
       break;

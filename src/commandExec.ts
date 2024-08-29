@@ -39,13 +39,22 @@ import {
   sanitizeRemote,
   standardizePath,
 } from "./packetProcessing.js";
-import { dirname, join, sep } from "path";
-import { scanFolder } from "./scanAndHash.js";
+import { basename, dirname, extname, join, sep } from "path";
+import { join as joinPosix } from "path/posix";
+import {
+  groundFolderPath,
+  ignoreHelper,
+  removeLeadingSlash,
+  removeTrailingAndLeadingSlash,
+  sanitizePath,
+  scanFolder,
+} from "./scanAndHash.js";
 import {
   calculateTotalChunksLocal,
   calculateTotalChunksRemote,
   type ProgressCallback,
 } from "./progressCallback.js";
+import { PicoSerialEvents } from "./picoSerialEvents.js";
 
 /**
  * Execute any type of command on a MicroPython board connected to
@@ -153,6 +162,14 @@ export async function executeAnyCommand(
         port,
         emitter,
         command as Command<CommandType.downloadFiles>,
+        progressCallback
+      );
+
+    case CommandType.downloadProject:
+      return executeDownloadProjectCommand(
+        port,
+        emitter,
+        command as Command<CommandType.downloadProject>,
         progressCallback
       );
 
@@ -767,7 +784,11 @@ export async function executeDownloadFilesCommand(
   emitter.once("interrupt", onInterrupt);
 
   if (command.args.files.length > 1) {
-    createFolderStructure(command.args.files, command.args.local);
+    createFolderStructure(
+      command.args.files,
+      command.args.local,
+      command.args.remoteBaseDir
+    );
 
     if (command.args.local.slice(-1) !== sep) {
       command.args.local += sep;
@@ -811,17 +832,22 @@ export async function executeDownloadFilesCommand(
       const files = item[1];
 
       const target =
-        join(command.args.local, folderPath.replace(/^[:/]+/, "")) + sep;
+        join(
+          command.args.local,
+          // TODO: run twice (also above in createFolderStructure)
+          groundFolderPath(
+            folderPath.replace(/^[:/]+/, ""),
+            command.args.remoteBaseDir
+          )
+        ) + sep;
 
       if (progressCallback) {
-        // TODO: add progress callback
         for (const file of files) {
-          // add progress callback
           try {
             const ct = await fsGet(
               port,
               file,
-              target + file,
+              join(target, basename(file)),
               emitter,
               CHUNK_SIZE,
               totalChunksCount,
@@ -851,7 +877,7 @@ export async function executeDownloadFilesCommand(
       } else {
         for (const file of files) {
           try {
-            await fsGet(port, file, target + file, emitter);
+            await fsGet(port, file, join(target, basename(file)), emitter);
           } catch (error) {
             const message =
               error instanceof Error
@@ -884,11 +910,10 @@ export async function executeDownloadFilesCommand(
           emitter
         );
 
-        // add progress callback
         await fsGet(
           port,
           command.args.files[0],
-          command.args.local,
+          join(command.args.local, basename(command.args.files[0])),
           emitter,
           CHUNK_SIZE,
           totalChunksCount,
@@ -896,7 +921,12 @@ export async function executeDownloadFilesCommand(
           progressCallback
         );
       } else {
-        await fsGet(port, command.args.files[0], command.args.local, emitter);
+        await fsGet(
+          port,
+          command.args.files[0],
+          join(command.args.local, basename(command.args.files[0])),
+          emitter
+        );
       }
     } catch {
       return { type: OperationResultType.commandResult, result: false };
@@ -905,6 +935,118 @@ export async function executeDownloadFilesCommand(
 
   // TODO: also decide when status false
   return { type: OperationResultType.commandResult, result: !interrupted };
+}
+
+export async function executeDownloadProjectCommand(
+  port: SerialPort,
+  emitter: EventEmitter,
+  command: Command<CommandType.downloadProject>,
+  progressCallback?: ProgressCallback
+): Promise<OperationResult> {
+  ok(command.args.projectRoot);
+  let interrupted = false;
+  const onInterrupt = (): void => {
+    interrupted = true;
+  };
+  emitter.once(PicoSerialEvents.interrupt, onInterrupt);
+
+  const ignoredWildcardItems =
+    command.args.ignoredItems?.filter(item => item.startsWith("**/")) ?? [];
+  const ignoredItems =
+    command.args.ignoredItems
+      ?.filter(item => !item.startsWith("**/"))
+      .map(item => sanitizePath(item)) ?? [];
+
+  // ensure file types are in the format ".ext"
+  const fileTypes =
+    command.args.fileTypes?.map(ft => (ft.startsWith(".") ? ft : `.${ft}`)) ??
+    [];
+  const remoteRoot = command.args.remoteRoot ?? "/";
+
+  try {
+    const contents = (
+      await fsListContentsRecursive(port, emitter, remoteRoot)
+    ).filter(
+      file =>
+        !file.isDir &&
+        (fileTypes.length === 0 || fileTypes.includes(extname(file.path))) &&
+        ignoreHelper(ignoredWildcardItems, ignoredItems, file.path)
+    );
+
+    if (contents.length === 0) {
+      emitter.off(PicoSerialEvents.interrupt, onInterrupt);
+
+      // TODO: maybe result=false if no files there to download
+      return { type: OperationResultType.commandResult, result: true };
+    }
+
+    if (interrupted) {
+      throw new Error("Interrupted");
+    }
+
+    const remoteHashes = await fsCalcFilesHashes(
+      port,
+      contents.map(file => file.path),
+      emitter
+    );
+
+    if (interrupted) {
+      throw new Error("Interrupted");
+    }
+
+    // TODO: only parse a list of remote files and check if they exist localy
+    // if true calc hash
+    const localHashes = scanFolder({
+      folderPath: command.args.projectRoot,
+      // reduce processing time (maybe)
+      fileTypes:
+        fileTypes.length > 0
+          ? fileTypes
+          : contents.map(file => extname(file.path)),
+      ignoredWildcardItems: ignoredWildcardItems,
+      ignoredPaths: ignoredItems,
+    });
+
+    if (interrupted) {
+      throw new Error("Interrupted");
+    }
+
+    const filePathsToDownload = contents
+      .map(file => file.path)
+      .filter(
+        file =>
+          !localHashes.has(file) ||
+          localHashes.get(file) !== getHashFromResponses(remoteHashes, file)
+      );
+
+    emitter.off(PicoSerialEvents.interrupt, onInterrupt);
+    if (filePathsToDownload.length === 0) {
+      return { type: OperationResultType.commandResult, result: true };
+    } else if (interrupted) {
+      throw new Error("Interrupted");
+    }
+
+    return executeDownloadFilesCommand(
+      port,
+      emitter,
+      {
+        type: CommandType.downloadFiles,
+        args: {
+          files: filePathsToDownload,
+          local:
+            filePathsToDownload.length > 1
+              ? command.args.projectRoot
+              : joinPosix(command.args.projectRoot, filePathsToDownload[0]),
+          remoteBaseDir: command.args.remoteRoot,
+        },
+      },
+      progressCallback
+    );
+  } catch {
+    emitter.off(PicoSerialEvents.interrupt, onInterrupt);
+
+    return { type: OperationResultType.commandResult, result: false };
+  }
 }
 
 /**
@@ -994,9 +1136,14 @@ export async function executeUploadProjectCommand(
   ok(command.args.fileTypes, "File types must be provided");
   ok(command.args.ignoredItems, "Ignored items must be provided");
 
+  // ensure file types are in the format ".ext"
+  const fileTypes =
+    command.args.fileTypes?.map(ft => (ft.startsWith(".") ? ft : `.${ft}`)) ??
+    [];
+
   const localHashes = scanFolder({
     folderPath: command.args.projectFolder,
-    fileTypes: command.args.fileTypes,
+    fileTypes,
     ignoredWildcardItems: command.args.ignoredItems.filter(item =>
       item.startsWith("**/")
     ),

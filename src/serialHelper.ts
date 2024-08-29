@@ -21,6 +21,7 @@ import {
 } from "./escapeCoder.js";
 import { basename } from "path";
 import type { ProgressCallback } from "./progressCallback.js";
+import { sanitizePath } from "./scanAndHash.js";
 
 // NOTE! it's encouraged to __pe_ as prefix for variables and functions defined
 // in the MicroPython REPL's global scope
@@ -907,10 +908,9 @@ export async function fsGet(
   };
 
   const filename = basename(source);
+  ok(dest.endsWith(filename), "Destination must end with the source filename");
   // TODO: fix multi slash issue at the beginning of the path to reduce computation
-  const target = normalizeSlashes(
-    dest.endsWith(filename) ? dest : dest + "/" + filename
-  );
+  const target = sanitizePath(dest);
 
   let destFile: FileHandle | undefined = undefined;
   try {
@@ -938,7 +938,7 @@ export async function fsGet(
         undefined,
         true
       );
-      const expectedEnding = Buffer.from("\r\n\x04", "utf8");
+      const expectedEnding = Buffer.from("\r\n", "utf8");
       // assert that the buffer ends with the expected sequence
       const bufferEndsWith = buffer
         .subarray(-expectedEnding.length)
@@ -981,6 +981,8 @@ export async function fsGet(
         break;
       }
     }
+  } catch (error) {
+    console.error(error);
   } finally {
     // close the file
     await destFile?.close();
@@ -1005,10 +1007,6 @@ export async function fsGet(
   }
 
   return;
-}
-
-function normalizeSlashes(path: string): string {
-  return path.replace(/\/+/g, "/");
 }
 
 /**
@@ -1042,7 +1040,7 @@ export async function fsPut(
 
   const filename = basename(source);
   // TODO: fix multi slash issue at the beginning of the path to reduce computation
-  const target = normalizeSlashes(
+  const target = sanitizePath(
     dest.endsWith(filename) ? dest : dest + "/" + filename
   );
 

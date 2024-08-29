@@ -1,12 +1,90 @@
+import { ok } from "assert";
 import { createHash } from "crypto";
 import { readdirSync, readFileSync, statSync } from "fs";
-import { extname, join, relative } from "path";
+import { basename, extname, join, relative } from "path";
 
 export interface ScanOptions {
   folderPath: string;
   fileTypes: string[];
   ignoredWildcardItems: string[];
+  // only supported for native host paths
   ignoredPaths: string[];
+}
+
+/**
+ * Sanitize a path by replacing backslashes with forward slashes and removing
+ * multi slashes.
+ *
+ * @param path The path to sanitize.
+ * @returns The sanitized path.
+ */
+export function sanitizePath(path: string): string {
+  return path.replace(/\\/g, "/").replace(/\/{2,}/g, "/");
+}
+
+export function wrapWithSlash(path: string): string {
+  const newPath = path.endsWith("/") ? path : path + "/";
+
+  return newPath.startsWith("/") ? newPath : "/" + newPath;
+}
+
+export function removeLeadingSlash(path: string): string {
+  return path.startsWith("/") ? path.substring(1) : path;
+}
+
+export function removeTrailingSlash(path: string): string {
+  return path.endsWith("/") ? path.slice(0, -1) : path;
+}
+
+export function removeTrailingAndLeadingSlash(path: string): string {
+  return removeTrailingSlash(path.startsWith("/") ? path.substring(1) : path);
+}
+
+export function groundFolderPath(
+  folderPath: string,
+  remoteBaseDir?: string
+): string {
+  if (!remoteBaseDir) {
+    return folderPath;
+  }
+  const remoteBaseDirSanitized = removeTrailingAndLeadingSlash(remoteBaseDir);
+  const fp = removeLeadingSlash(folderPath);
+
+  ok(fp.startsWith(remoteBaseDirSanitized));
+
+  return fp.replace(remoteBaseDirSanitized, "/");
+}
+
+/**
+ * Check if a file is ignored by the ignoredItems list.
+ *
+ * @param ignoredItems Ignore items are relative the project folder paths to ignore
+ * (can directly exclude a certain file or a folder)
+ * or **\/item to ignore all items with that name.
+ * @param filePath File path to check.
+ * @returns true if not ignored, false if ignored
+ */
+export function ignoreHelper(
+  wildcardIgnoredItems: string[],
+  ignoredItems: string[],
+  filePath: string
+): boolean {
+  // assume ignored items are already sanitized
+  const fp = sanitizePath(removeTrailingSlash(`/${filePath}`));
+  const bn = basename(filePath);
+
+  return (
+    !wildcardIgnoredItems.some(
+      item =>
+        bn === removeTrailingAndLeadingSlash(item.substring(3)) ||
+        fp.includes(`/${removeTrailingAndLeadingSlash(item.substring(3))}/`)
+    ) &&
+    !ignoredItems.some(
+      ii =>
+        fp === removeTrailingSlash(ii.startsWith("/") ? ii : `/${ii}`) ||
+        fp.startsWith(wrapWithSlash(ii))
+    )
+  );
 }
 
 export function scanFolder(options: ScanOptions): Map<string, string> {
@@ -20,11 +98,9 @@ export function scanFolder(options: ScanOptions): Map<string, string> {
     for (const item of items) {
       const itemPath = join(dir, item);
 
-      // Ignore items are file/folder names (not absolute or relative paths)
-      if (
-        ignoredWildcardItems.includes("**/" + item) ||
-        ignoredPaths.includes(relative(folderPath, itemPath))
-      ) {
+      let relPath = sanitizePath(relative(folderPath, itemPath));
+      relPath = relPath.startsWith("/") ? relPath : `/${relPath}`;
+      if (ignoreHelper(ignoredWildcardItems, ignoredPaths, relPath) === false) {
         continue;
       }
 

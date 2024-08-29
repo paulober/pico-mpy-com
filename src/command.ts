@@ -8,6 +8,7 @@ export enum CommandType {
   listContentsRecursive,
   uploadFiles,
   downloadFiles,
+  downloadProject,
   deleteFiles,
   mkdirs,
   rmdirs,
@@ -36,13 +37,18 @@ interface CommandArgsMapping {
   [CommandType.downloadFiles]: {
     files: string[];
     local: string;
-    verbose?: boolean;
+    remoteBaseDir?: string;
+  };
+  [CommandType.downloadProject]: {
+    projectRoot: string;
+    remoteRoot?: string;
+    fileTypes?: string[];
+    ignoredItems?: string[];
   };
   [CommandType.uploadFiles]: {
     files: string[];
     remote: string;
     localBaseDir?: string;
-    verbose?: boolean;
   };
   [CommandType.deleteFiles]: { files: string[] };
   [CommandType.mkdirs]: { folders: string[] };
@@ -59,7 +65,7 @@ interface CommandArgsMapping {
   [CommandType.syncRtc]: object;
   [CommandType.getRtcTime]: object;
   [CommandType.softReset]: object;
-  [CommandType.hardReset]: { verbose?: boolean };
+  [CommandType.hardReset]: object;
   [CommandType.ctrlD]: object;
   [CommandType.factoryResetFilesystem]: object;
 }

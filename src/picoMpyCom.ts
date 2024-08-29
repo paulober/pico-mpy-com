@@ -509,30 +509,38 @@ export class PicoMpyCom extends EventEmitter {
   /**
    * Download all files from the board into a project folder.
    *
-   * @param projectRoot The root folder of the project.
+   * @param projectRoot The folder where to download the project into.
+   * @param remoteRoot The root folder on the board to download from.
+   * If kept empty, the root of the board is used.
+   * @param fileTypes File types to download (e.g. [".py", ".json"]).
+   * If empty, all file types are downloaded.
+   * @param ignoredItems Items to ignore during download.
+   * Ignore items are relative the project folder paths to ignore
+   * (can directly exclude a certain file or a folder).
+   * (TODO: at the moment they need to be relative to / on the board no matter if remoteRoot is set)
+   * or **\/item to ignore all items with that name.
    * @param progressCallback The callback to receive the progress of the operation.
    * @returns The result of the operation.
    */
   public async downloadProject(
     projectRoot: string,
+    remoteRoot?: string,
+    fileTypes?: string[],
+    ignoredItems?: string[],
     progressCallback?: ProgressCallback
   ): Promise<OperationResult> {
     if (this.isPortDisconnected()) {
       return { type: OperationResultType.none };
     }
-    // TODO: add hash calculation like for uploading
 
-    const contents = await this.listContentsRecursive(projectRoot);
-
-    if (contents.type !== OperationResultType.listContents) {
-      return { type: OperationResultType.none };
-    }
-
-    const filePaths = contents.contents.map(file => file.path);
-
-    return this.downloadFiles(
-      filePaths,
-      filePaths.length > 1 ? projectRoot : join(projectRoot, filePaths[0]),
+    return this.enqueueCommandOperation(
+      {
+        type: CommandType.downloadProject,
+        args: { projectRoot, remoteRoot, fileTypes, ignoredItems },
+      },
+      undefined,
+      undefined,
+      undefined,
       progressCallback
     );
   }
@@ -656,7 +664,9 @@ export class PicoMpyCom extends EventEmitter {
    * @param fileTypes File types to upload (e.g. ["py", "json"]).
    * Empty array uploads all files.
    * @param ignoredItems Items to ignore during upload.
-   * Relative paths and allows certain wildcards (to be documented).
+   * Ignore items are relative the project folder paths to ignore
+   * (can directly exclude a certain file or a folder)
+   * or **\/item to ignore all items with that name.
    * @param progressCallback The callback to receive the progress of the operation.
    * @returns The result of the operation.
    */

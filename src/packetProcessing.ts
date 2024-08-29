@@ -2,6 +2,7 @@ import { execSync } from "child_process";
 import type FileData from "./fileData.js";
 import { existsSync, mkdirSync } from "fs";
 import { dirname, join } from "path";
+import { groundFolderPath } from "./scanAndHash.js";
 
 // Contains utilities for parsing the output of commands from the board
 // or to format command arguments for usage on the board.
@@ -271,11 +272,15 @@ export function standardizePath(
 
 export function createFolderStructure(
   filePaths: string[],
-  localFolderPath: string
+  localFolderPath: string,
+  remoteBaseDir?: string
 ): void {
   filePaths.forEach(filePath => {
     // Remove leading ':' and '/' from the file path
-    const normalizedPath = filePath.replace(/^[:/]+/, "");
+    const normalizedPath = groundFolderPath(
+      filePath.replace(/^[:/]+/, ""),
+      remoteBaseDir
+    );
     // Create the full path by joining with the local folder path
     const fullPath = join(localFolderPath, normalizedPath);
     // Get the directory path
