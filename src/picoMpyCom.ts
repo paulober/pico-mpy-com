@@ -520,6 +520,7 @@ export class PicoMpyCom extends EventEmitter {
     if (this.isPortDisconnected()) {
       return { type: OperationResultType.none };
     }
+    // TODO: add hash calculation like for uploading
 
     const contents = await this.listContentsRecursive(projectRoot);
 

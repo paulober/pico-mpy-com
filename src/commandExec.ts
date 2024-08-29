@@ -1010,18 +1010,22 @@ export async function executeUploadProjectCommand(
       port,
       Array.from(localHashes.keys(), file =>
         // clear out any Windows style and duble slashes
-        file.replace("\\", "/").replace("//", "/")
+        file.replaceAll("\\", "/").replace("//+/g", "/")
       ),
       emitter
     );
 
     const filesToUpload = [...localHashes.keys()]
+      // TODO: find better solution maybe already translate the paths in localHashes
+      // required for equals comparission with remote hashes, keep og for get from local
+      .map(file => [file, file.replaceAll("\\", "/").replace("//+/g", "/")])
       .filter(
         file =>
-          !hasFile(remoteHashes, file) ||
-          getHashFromResponses(remoteHashes, file) !== localHashes.get(file)
+          !hasFile(remoteHashes, file[1]) ||
+          getHashFromResponses(remoteHashes, file[1]) !==
+            localHashes.get(file[0])
       )
-      .map(file => join(command.args.projectFolder, file));
+      .map(file => join(command.args.projectFolder, file[1]));
 
     if (filesToUpload.length === 0) {
       return { type: OperationResultType.commandResult, result: true };
