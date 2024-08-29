@@ -153,29 +153,33 @@ export class PicoMpyCom extends EventEmitter {
    */
   public async closeSerialPort(force = false): Promise<void> {
     if (this.serialPort) {
-      if (!force) {
-        this.serialPortClosing = true;
-        // TODO: maybe use interruptExecution also
-        // wait for the queue to finish
-        await new Promise<void>(resolve => {
-          const checkQueue = (): void => {
-            if (!this.operationInProgress) {
-              resolve();
-            } else {
-              setTimeout(checkQueue, 100);
-            }
-          };
-          checkQueue();
-        });
-      } else {
-        // interrupt still gives some kind of operations a chance terminate on their own terms
-        this.interruptExecution();
-        // TODO: maybe wait a short delay before closing
+      if (!this.isPortDisconnected()) {
+        if (!force) {
+          this.serialPortClosing = true;
+          // TODO: maybe use interruptExecution also
+          // wait for the queue to finish
+          await new Promise<void>(resolve => {
+            const checkQueue = (): void => {
+              if (!this.operationInProgress) {
+                resolve();
+              } else {
+                setTimeout(checkQueue, 100);
+              }
+            };
+            checkQueue();
+          });
+        } else {
+          // interrupt still gives some kind of operations a chance terminate on their own terms
+          this.interruptExecution();
+          // TODO: maybe wait a short delay before closing
+        }
+
+        // close the port
+        this.serialPort.close();
+        // wait 0.5 seconds for the port to close and listeners to be notified
+        await new Promise(resolve => setTimeout(resolve, 500));
       }
-      // close the port
-      this.serialPort.close();
-      // wait 0.5 seconds for the port to close and listeners to be notified
-      await new Promise(resolve => setTimeout(resolve, 500));
+
       // TODO: not sure if this is necessary as it would cause some overhead on clients
       // remove all listeners
       //this.serialPort.removeAllListeners();
