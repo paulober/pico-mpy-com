@@ -234,6 +234,13 @@ export function dateToRp2Datetime(date: Date): string {
   );
 }
 
+/**
+ * Sanitizes the remote path by removing leading : or
+ * replacing undefined with /.
+ *
+ * @param path The remote path to sanitize
+ * @returns The sanitized remote path
+ */
 export function sanitizeRemote(path?: string): string {
   /*if (!path || path === "") {
     return ":";
@@ -250,6 +257,14 @@ export function sanitizeRemote(path?: string): string {
   return path ?? "/";
 }
 
+/**
+ * Replacing backslashes with forward slashes and reduce multiple slashes to one.
+ * Also paths in the output are sorted by the number of slashes in them.
+ *
+ * @param localBaseDir The base directory of the local files
+ * @param local The list of local files
+ * @returns The list of tuples with original and modified paths
+ */
 export function standardizePath(
   localBaseDir: string,
   local: string[]
@@ -270,6 +285,14 @@ export function standardizePath(
   return destinations;
 }
 
+/**
+ * Create the folder structure for the provided file paths so
+ * file can be uploaded.
+ *
+ * @param filePaths The list of file paths
+ * @param localFolderPath The local folder path
+ * @param remoteBaseDir The remote base directory
+ */
 export function createFolderStructure(
   filePaths: string[],
   localFolderPath: string,

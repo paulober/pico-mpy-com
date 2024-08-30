@@ -1,3 +1,6 @@
+/**
+ * A model for representing file meta data / details on the board.
+ */
 export default interface FileData {
   /**
    * The path of the file on the device
@@ -28,6 +31,9 @@ export default interface FileData {
   created?: Date;
 }
 
+/**
+ * The result of a rename operation sent from the board. (DTO)
+ */
 export interface RenameResult {
   /**
    * Operation result

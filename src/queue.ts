@@ -5,6 +5,9 @@ interface IQueue<T> {
   isEmpty(): boolean;
 }
 
+/**
+ * A simple queue implementation.
+ */
 export class Queue<T> implements IQueue<T> {
   private items: T[] = [];
 

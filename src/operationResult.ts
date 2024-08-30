@@ -1,5 +1,8 @@
 import type FileData from "./fileData.js";
 
+/**
+ * The type of an operation result.
+ */
 export enum OperationResultType {
   none,
   commandResponse,
@@ -10,6 +13,9 @@ export enum OperationResultType {
   tabComplete,
 }
 
+/**
+ * The result type collection for operations.
+ */
 export type OperationResult =
   | OpResultNone
   | OpResultCommandResponse
@@ -19,6 +25,9 @@ export type OperationResult =
   | OpResultGetRtcTime
   | OpResultTabComplete;
 
+/**
+ * The base interface for all operation results.
+ */
 interface OpResult {
   type: OperationResultType;
 }

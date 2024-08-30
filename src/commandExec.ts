@@ -44,8 +44,6 @@ import { join as joinPosix } from "path/posix";
 import {
   groundFolderPath,
   ignoreHelper,
-  removeLeadingSlash,
-  removeTrailingAndLeadingSlash,
   sanitizePath,
   scanFolder,
 } from "./scanAndHash.js";
@@ -147,7 +145,6 @@ export async function executeAnyCommand(
         command as Command<CommandType.rmFileOrDir>
       );
 
-    // TODO: implementation not finished
     case CommandType.uploadFiles:
       return executeUploadFilesCommand(
         port,
@@ -156,7 +153,6 @@ export async function executeAnyCommand(
         progressCallback
       );
 
-    // TODO: implementation not finished
     case CommandType.downloadFiles:
       return executeDownloadFilesCommand(
         port,
@@ -774,6 +770,7 @@ export async function executeDownloadFilesCommand(
   ok(command.args.files);
   ok(command.args.local);
 
+  let failedDownloads = 0;
   let interrupted = false;
   // does need its own interrupt handler compared to
   // the get calles it does to catch interrupts fired
@@ -859,6 +856,7 @@ export async function executeDownloadFilesCommand(
               chunksTransfered += ct;
             }
           } catch (error) {
+            failedDownloads++;
             const message =
               error instanceof Error
                 ? error.message
@@ -879,6 +877,7 @@ export async function executeDownloadFilesCommand(
           try {
             await fsGet(port, file, join(target, basename(file)), emitter);
           } catch (error) {
+            failedDownloads++;
             const message =
               error instanceof Error
                 ? error.message
@@ -929,14 +928,28 @@ export async function executeDownloadFilesCommand(
         );
       }
     } catch {
+      failedDownloads++;
+
       return { type: OperationResultType.commandResult, result: false };
     }
   }
 
-  // TODO: also decide when status false
-  return { type: OperationResultType.commandResult, result: !interrupted };
+  return {
+    type: OperationResultType.commandResult,
+    result: !interrupted || failedDownloads === command.args.files.length,
+  };
 }
 
+/**
+ * Executes a download project command used to only download files that have changed
+ * or are not present in the local project folder.
+ *
+ * @param port The serial port where the board is connected to.
+ * @param emitter The event emitter to listen for events.
+ * @param command The command to execute.
+ * @param progressCallback A function to call to report progress.
+ * @returns The result of the operation.
+ */
 export async function executeDownloadProjectCommand(
   port: SerialPort,
   emitter: EventEmitter,
@@ -1287,7 +1300,6 @@ export async function executeRenameCommand(
   try {
     await fsRename(port, command.args.item, command.args.target, emitter);
 
-    // TODO: or return .status or remove .status type
     return { type: OperationResultType.commandResult, result: true };
   } catch {
     return { type: OperationResultType.commandResult, result: false };

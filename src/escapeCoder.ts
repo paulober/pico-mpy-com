@@ -1,6 +1,12 @@
 import { ok } from "assert";
 import type { FileHandle } from "fs/promises";
 
+/**
+ * Replace simple escape sequences in a string with their respective characters.
+ *
+ * @param str The string to process.
+ * @returns The string with all simple escape sequences replaced.
+ */
 function replaceSimpleEscapeSequences(str: string): string {
   // TODO: single pass maybe loop or match any \any and then replace with lambda
   return str
@@ -86,6 +92,13 @@ export async function writeEncodedBufferToFile(
   }
 }
 
+/**
+ * Decode the values of escape simple escape sequences with their
+ * respective characters for the string representation of them.
+ *
+ * @param str The string to process.
+ * @returns The string with all simple escape sequences replaced.
+ */
 function encodeSimpleEscapeSequences(str: string): string {
   return str
     .replace(/\\/g, "\\\\") // Backslash

@@ -9,7 +9,6 @@ import {
   OperationResultType,
 } from "./operationResult.js";
 import { executeAnyCommand } from "./commandExec.js";
-import { join } from "path";
 import type { ProgressCallback } from "./progressCallback.js";
 
 /**

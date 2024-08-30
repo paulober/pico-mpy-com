@@ -1,5 +1,6 @@
+// Copyright MicroPython contributors
 export const injectedImportHookCode = `
-import uos, uio
+import os, uio
 class _FS:
   class File(uio.IOBase):
     def __init__(self):
@@ -18,9 +19,9 @@ class _FS:
       raise OSError(-2) # ENOENT
   def open(self, path, mode):
     return self.File()
-uos.mount(_FS(), '/_')
-uos.chdir('/_')
+os.mount(_FS(), '/_')
+os.chdir('/_')
 from _injected import *
-uos.umount('/_')
+os.umount('/_')
 del _injected_buf, _FS
 `;

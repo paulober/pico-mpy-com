@@ -3,7 +3,7 @@
   "version": "0.0.4",
   "author": "paulober",
   "publisher": "raspberry-pi",
-  "description": "A nodejs library for communicating with USD devices running the MicroPython firmware.",
+  "description": "A nodejs library for communicating with USB devices running the MicroPython firmware.",
   "license": "Apache-2.0",
   "publishConfig": {
     "registry": "https://npm.pkg.github.com"
@@ -14,7 +14,7 @@
   },
   "type": "module",
   "engines": {
-    "node": ">=20.14"
+    "node": ">=20.14.0"
   },
   "os": [
     "win32",

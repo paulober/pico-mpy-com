@@ -75,7 +75,6 @@ export async function readUntil(
   receiver?: (data: Buffer) => void,
   skip?: number
 ): Promise<Buffer | undefined> {
-  // TODO: remove logging commands
   //ok(receiver === undefined || suffix.length === 1);
   let encounters = 0;
   let blockCheck = false;
@@ -431,7 +430,6 @@ export async function executeCommandWithoutResult(
     throw new Error("Error executing command");
   }
 
-  // TODO: implement support for raw paste mode
   if (useRawPasteMode) {
     // try to enter raw paste mode
     port.write(BUFFER_RAW_PASTE_STATUS, errCb);
@@ -551,7 +549,6 @@ export async function executeCommand(
   silentFail?: boolean,
   atomic = false
 ): Promise<string> {
-  // TODO: remove timing
   const result = await executeCommandWithResult(
     port,
     command,
@@ -569,7 +566,6 @@ export async function executeCommand(
   return result.data;
 }
 
-// TODO: for this to work it is required that a working python interpreter is installed
 /**
  * Aka. execute friendly command.
  *
@@ -981,8 +977,6 @@ export async function fsGet(
         break;
       }
     }
-  } catch (error) {
-    console.error(error);
   } finally {
     // close the file
     await destFile?.close();
@@ -1218,7 +1212,6 @@ export async function fsRename(
   newName: string,
   emitter: EventEmitter
 ): Promise<void> {
-  // TODO: maybe guard with try except
   await executeCommand(
     port,
     `import os\nos.rename('${oldName}','${newName}')`,

@@ -3,6 +3,9 @@ import { createHash } from "crypto";
 import { readdirSync, readFileSync, statSync } from "fs";
 import { basename, extname, join, relative } from "path";
 
+/**
+ * Options for the local scan function.
+ */
 export interface ScanOptions {
   folderPath: string;
   fileTypes: string[];
@@ -40,6 +43,13 @@ export function removeTrailingAndLeadingSlash(path: string): string {
   return removeTrailingSlash(path.startsWith("/") ? path.substring(1) : path);
 }
 
+/**
+ * Ground a folder path by removing the remote base directory.
+ *
+ * @param folderPath The folder path to ground.
+ * @param remoteBaseDir The remote base directory.
+ * @returns The grounded folder path.
+ */
 export function groundFolderPath(
   folderPath: string,
   remoteBaseDir?: string
@@ -87,6 +97,12 @@ export function ignoreHelper(
   );
 }
 
+/**
+ * Scan a folder and return a map of file paths and their hashes. (recursive)
+ *
+ * @param options The scan options.
+ * @returns The map of file paths and their hashes.
+ */
 export function scanFolder(options: ScanOptions): Map<string, string> {
   const result = new Map<string, string>();
   const { folderPath, fileTypes, ignoredWildcardItems, ignoredPaths } = options;
