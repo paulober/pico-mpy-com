@@ -483,7 +483,10 @@ export class PicoMpyCom extends EventEmitter {
    * Download files from the MicroPython board.
    *
    * @param files Download files from the board.
-   * @param target Target directory on the local machine.
+   * @param target Target directory on the local machine. If file count is 1,
+   * the target can be a file path. If you want a single file to be downloaded into
+   * the target folder, make sure it exists before downloading, otherwise it
+   * will be treated as a target file path.
    * @param progressCallback The callback to receive the progress of the operation.
    * @returns The result of the operation.
    */

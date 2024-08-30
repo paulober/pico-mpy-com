@@ -285,8 +285,14 @@ async function handleCommand(command: string): Promise<void> {
                     console.log(`Uploading ${current}/${total} - ${path}`);
                   }
                 )
-                .then(() => {
-                  console.log("Files downloaded successfully.");
+                .then(result => {
+                  if (result.type === OperationResultType.commandResult) {
+                    console.log(
+                      result.result
+                        ? "Files downloaded successfully."
+                        : "Files download failed."
+                    );
+                  }
                   resolve();
                 })
                 .catch(reject);

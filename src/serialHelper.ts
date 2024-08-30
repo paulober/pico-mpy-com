@@ -903,8 +903,6 @@ export async function fsGet(
     interrupted = true;
   };
 
-  const filename = basename(source);
-  ok(dest.endsWith(filename), "Destination must end with the source filename");
   // TODO: fix multi slash issue at the beginning of the path to reduce computation
   const target = sanitizePath(dest);
 

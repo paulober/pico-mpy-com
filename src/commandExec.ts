@@ -53,6 +53,7 @@ import {
   type ProgressCallback,
 } from "./progressCallback.js";
 import { PicoSerialEvents } from "./picoSerialEvents.js";
+import { stat } from "fs/promises";
 
 /**
  * Execute any type of command on a MicroPython board connected to
@@ -901,6 +902,18 @@ export async function executeDownloadFilesCommand(
     }
   } else {
     try {
+      // support for using local as parameter to directly specify a target file
+      // but also have the option to specify a target directory
+      let target = command.args.local;
+      try {
+        const localStat = await stat(command.args.local);
+        if (localStat.isDirectory()) {
+          target = join(command.args.local, basename(command.args.files[0]));
+        }
+      } catch {
+        // no problem, just treat target as a file
+      }
+
       if (progressCallback) {
         const totalChunksCount = await calculateTotalChunksRemote(
           port,
@@ -912,7 +925,7 @@ export async function executeDownloadFilesCommand(
         await fsGet(
           port,
           command.args.files[0],
-          join(command.args.local, basename(command.args.files[0])),
+          target,
           emitter,
           CHUNK_SIZE,
           totalChunksCount,
@@ -920,12 +933,7 @@ export async function executeDownloadFilesCommand(
           progressCallback
         );
       } else {
-        await fsGet(
-          port,
-          command.args.files[0],
-          join(command.args.local, basename(command.args.files[0])),
-          emitter
-        );
+        await fsGet(port, command.args.files[0], target, emitter);
       }
     } catch {
       failedDownloads++;
