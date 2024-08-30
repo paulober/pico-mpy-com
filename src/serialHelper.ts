@@ -35,7 +35,6 @@ const BUFFER_R01 = Buffer.from("R\x01");
 const BUFFER_01 = Buffer.from("\x01");
 const BUFFER_03 = Buffer.from("\x03");
 const BUFFER_04 = Buffer.from("\x04");
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const BUFFER_CR = Buffer.from("\r");
 const BUFFER_TAB = Buffer.from("\t");
 
@@ -515,7 +514,10 @@ export async function executeCommandWithResult(
     // call exe without result and then call follow
     await executeCommandWithoutResult(port, command);
 
-    return follow(port, timeout, receiver);
+    // needs to be awaited here, otherwise it will
+    // return the promisse which will run the final block
+    // of this try catch as the promisse is awaited somewhere else
+    return await follow(port, timeout, receiver);
   } catch {
     if (interrupted) {
       return { data: "", error: "Interrupted" };

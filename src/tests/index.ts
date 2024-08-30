@@ -342,6 +342,10 @@ async function handleCommand(command: string): Promise<void> {
                 if (open) {
                   relayInput = true;
                   rl.resume();
+                  // for testing of interrupts
+                  setTimeout(() => {
+                    serialCom.interruptExecution();
+                  }, 5000);
                 }
               },
               (data: Buffer) => {
