@@ -106,9 +106,11 @@ export async function readUntil(
     if (port.readable && port.readableLength > 0) {
       const newData = ensureBuffer(port.read(1) as Buffer | string | null);
       // TODO: maybe also not relay the data if it is the suffix
-      if (receiver && !newData.equals(BUFFER_04) && newData.length > 0) {
+      if (receiver && newData.length > 0) {
         blockCheck = false;
-        receiver(newData);
+        if (!newData.equals(BUFFER_04)) {
+          receiver(newData);
+        }
 
         // keep normal behavior if suffix is one byte
         if (suffix.length === 1) {
@@ -163,7 +165,8 @@ export function stopRunningStuff(
   // TODO: useage must be checked as most don't care about this could throw
   // send CTRL-C twice to stop any running program
   port.write(
-    "\r\x03\x03",
+    // does make futer commands fail to wait for > if \r is included in this buffer
+    Buffer.concat([BUFFER_03, BUFFER_03]),
     errorCb ??
       ((err: Error | null | undefined): void => {
         if (err) {
@@ -192,13 +195,14 @@ export async function enterRawRepl(
 
   // send CTRL-C twice to stop any running program
   //port.write("\r\x03\x03", errCb);
+  port.write(BUFFER_CR, errCb);
   stopRunningStuff(port, errCb);
 
   // flush input
   port.flush(errCb);
 
   // enter raw repl (CTRL-A)
-  port.write("\r\x01", errCb);
+  port.write(Buffer.concat([BUFFER_CR, BUFFER_01]), errCb);
 
   if (softReset) {
     let data =
@@ -210,7 +214,7 @@ export async function enterRawRepl(
     }
 
     // soft reset
-    port.write("\x04", errCb);
+    port.write(BUFFER_04, errCb);
 
     data =
       (await readUntil(port, 1, "soft reboot\r\n"))?.toString("utf-8") ?? "";
@@ -274,8 +278,9 @@ export async function follow(
 ): Promise<{ data: string; error: string }> {
   // wait for output
   let data =
-    (await readUntil(port, 1, "\x04", timeout, receiver))?.toString("utf-8") ??
-    "";
+    (await readUntil(port, 1, BUFFER_04, timeout, receiver))?.toString(
+      "utf-8"
+    ) ?? "";
   if (!data.endsWith("\x04")) {
     throw new Error("Error following output");
   }
@@ -284,7 +289,7 @@ export async function follow(
 
   // wait for an error if any
   let error =
-    (await readUntil(port, 1, "\x04", timeout))?.toString("utf-8") ?? "";
+    (await readUntil(port, 1, BUFFER_04, timeout))?.toString("utf-8") ?? "";
   if (!error.endsWith("\x04")) {
     throw new Error("Error following output");
   }
@@ -432,7 +437,7 @@ export async function executeCommandWithoutResult(
   if (useRawPasteMode) {
     // try to enter raw paste mode
     port.write(BUFFER_RAW_PASTE_STATUS, errCb);
-    const data = await readUntil(port, 2, "R\x01", 5);
+    const data = await readUntil(port, 2, BUFFER_R01, 3);
     if (data?.equals(BUFFER_R00)) {
       // device understood raw-paste command but doesn't support it
       // because it understood we don't have to manually reenter raw repl
@@ -512,7 +517,7 @@ export async function executeCommandWithResult(
     }
 
     // call exe without result and then call follow
-    await executeCommandWithoutResult(port, command);
+    await executeCommandWithoutResult(port, command.trim());
 
     // needs to be awaited here, otherwise it will
     // return the promisse which will run the final block

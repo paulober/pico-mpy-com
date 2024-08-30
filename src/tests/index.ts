@@ -540,7 +540,7 @@ async function handleCommand(command: string): Promise<void> {
           rl.pause();
           serialCom
             .runFriendlyCommand(
-              command,
+              command.trim(),
               (open: boolean) => {
                 if (open) {
                   relayInput = true;
