@@ -12,6 +12,7 @@ export enum PicoSerialEvents {
 
   // queue events
   startOperation = "startOperation",
+  // please .trim your data before transmitting and remove trailing \r or \n
   relayInput = "relayInput",
   // triggered if relaying input fails
   relayInputError = "relayInputError",

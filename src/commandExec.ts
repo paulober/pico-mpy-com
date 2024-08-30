@@ -1249,7 +1249,10 @@ export async function executeTabCompleteCommand(
   port: SerialPort,
   command: Command<CommandType.tabComplete>
 ): Promise<OperationResult> {
-  ok(command.args.code);
+  ok(command.args.code !== undefined);
+  if (command.args.code.length === 0) {
+    return { type: OperationResultType.none };
+  }
 
   try {
     const result = await retrieveTabCompletion(port, command.args.code);

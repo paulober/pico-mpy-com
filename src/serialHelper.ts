@@ -618,7 +618,7 @@ export async function executeCommandInteractive(
       // discards any input that arrives before the command has been sent
       return;
     }
-    port.write(data, err => {
+    port.write(Buffer.concat([data, BUFFER_CR]), err => {
       if (err) {
         emitter.emit(PicoSerialEvents.relayInputError, err);
       }

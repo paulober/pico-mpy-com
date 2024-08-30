@@ -835,7 +835,7 @@ handleCommand("help")
       if (relayInput) {
         serialCom.emit(
           PicoSerialEvents.relayInput,
-          Buffer.from(line + "\r\n", "utf-8")
+          Buffer.from(line.trim(), "utf-8")
         );
 
         return;
