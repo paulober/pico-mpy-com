@@ -277,8 +277,8 @@ export async function executeCommandCommand(
  * @param emitter The event emitter to listen for events.
  * @param command The command to execute.
  * @param receiver The function to receive the data as it comes in.
- * @param pythonInterpreterPath The path to a local Python interpreter use for
- * expression wrapping.
+ * @param pythonInterpreterPath A path to a local python interpreter
+ * for wrapping expressions. Can speed up execution of expressions.
  * @returns The result of the operation.
  */
 export async function executeExpressionCommand(

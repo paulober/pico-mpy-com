@@ -433,6 +433,8 @@ export class PicoMpyCom extends EventEmitter {
    * If this triggers, user input can be fired as relayInput events.
    * Those events will be relayed to the board.
    * @param receiver A callback to receive the data from the board.
+   * @param pythonInterpreterPath A path to a local python interpreter
+   * for wrapping expressions. Can speed up execution of expressions.
    * @returns
    */
   public async runFriendlyCommand(
