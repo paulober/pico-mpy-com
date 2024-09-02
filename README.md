@@ -7,7 +7,7 @@ It utilizes serial over USB to communicate with the board.
 
 ## Installation
 
-> TODO: add github package registry setup instructions
+> Note: It's required to authenticate with the GitHub package registry in order to install this package. [github/docs](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-npm-registry)
 
 ```bash
 npm install @paulober/pico-mpy-com

@@ -83,10 +83,6 @@ export async function executeAnyCommand(
       );
 
     case CommandType.expression:
-      ok(
-        pythonInterpreterPath,
-        "Python interpreter path must be provided for expression evaluation"
-      );
       ok(receiver, "Receiver must be provided for expression evaluation");
 
       return executeExpressionCommand(
@@ -290,15 +286,15 @@ export async function executeExpressionCommand(
   emitter: EventEmitter,
   command: Command<CommandType.expression>,
   receiver: (data: Buffer) => void,
-  pythonInterpreterPath: string
+  pythonInterpreterPath?: string
 ): Promise<OperationResult> {
   try {
     const error = await evaluteExpression(
       port,
       command.args.code,
-      pythonInterpreterPath,
       emitter,
-      receiver
+      receiver,
+      pythonInterpreterPath
     );
 
     if (error) {

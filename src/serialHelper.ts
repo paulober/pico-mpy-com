@@ -587,14 +587,31 @@ export async function executeCommand(
 export async function evaluteExpression(
   port: SerialPort,
   expression: string | Buffer,
-  pythonInterpreterPath: string,
   emitter: EventEmitter,
-  receiver: (data: Buffer) => void
+  receiver: (data: Buffer) => void,
+  pythonInterpreterPath?: string
 ): Promise<string | null> {
-  const command = wrapExpressionWithPrint(
-    pythonInterpreterPath,
-    expression instanceof Buffer ? expression.toString("utf-8") : expression
-  );
+  let command = "";
+  if (pythonInterpreterPath) {
+    command = wrapExpressionWithPrint(
+      pythonInterpreterPath,
+      expression instanceof Buffer ? expression.toString("utf-8") : expression
+    );
+  } else {
+    command = `
+_pe_r = False; _pe_s = """${
+      expression instanceof Buffer
+        ? expression.toString("utf-8").replace(/"/g, '\\"')
+        : expression.replace(/"/g, '\\"')
+    }"""
+try:
+ code=compile(_pe_s, "<string>", "eval")
+ _pe_r=eval(_pe_s)
+except:
+ _pe_r=exec(_pe_s)
+if _pe_r is not None:
+ print(_pe_r)`;
+  }
 
   return executeCommandInteractive(port, command, emitter, receiver);
 }

@@ -439,7 +439,7 @@ export class PicoMpyCom extends EventEmitter {
     command: string,
     readyStateCb: (open: boolean) => void,
     receiver: (data: Buffer) => void,
-    pythonInterpreterPath: string
+    pythonInterpreterPath?: string
   ): Promise<OperationResult> {
     if (this.isPortDisconnected()) {
       return { type: OperationResultType.none };
