@@ -500,7 +500,8 @@ export class PicoMpyCom extends EventEmitter {
         type: CommandType.hardReset,
         args: {},
       },
-      follow
+      follow,
+      readyStateCb
     );
   }
 
