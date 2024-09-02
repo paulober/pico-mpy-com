@@ -1,6 +1,6 @@
 {
   "name": "@paulober/pico-mpy-com",
-  "version": "1.0.9",
+  "version": "1.0.10",
   "author": "paulober",
   "publisher": "raspberry-pi",
   "description": "A nodejs library for communicating with USB devices running the MicroPython firmware.",
