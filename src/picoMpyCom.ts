@@ -638,6 +638,15 @@ export class PicoMpyCom extends EventEmitter {
     );
   }
 
+  /**
+   * Run a remote file on the MicroPython board.
+   *
+   * @param file The path to the file on the board to run.
+   * @param readyStateCb A callback to receive the ready state of the port
+   * to relay input.
+   * @param follow The callback to receive the data from the board.
+   * @returns The result of the operation.
+   */
   public async runRemoteFile(
     file: string,
     readyStateCb: (open: boolean) => void,
