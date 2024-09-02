@@ -2,6 +2,7 @@ import { PicoMpyCom } from "../picoMpyCom.js";
 import { createInterface } from "readline";
 import { PicoSerialEvents } from "../picoSerialEvents.js";
 import { OperationResultType } from "../operationResult.js";
+import { hardReset } from "../serialHelper.js";
 
 const serialCom = PicoMpyCom.getInstance();
 
@@ -151,6 +152,7 @@ serialCom.on(PicoSerialEvents.portError, error => {
 });
 
 let relayInput = false;
+let interupOnInput = false;
 
 async function handleCommand(command: string): Promise<void> {
   switch (command) {
@@ -352,9 +354,15 @@ async function handleCommand(command: string): Promise<void> {
                 process.stdout.write(data);
               }
             )
-            .then(() => {
+            .then(data => {
               relayInput = false;
-              console.log("File executed successfully.");
+              if (data.type === OperationResultType.commandResult) {
+                console.log(
+                  data.result
+                    ? "File executed successfully."
+                    : "File execution failed."
+                );
+              }
               resolve();
             })
             .catch(reject);
@@ -796,18 +804,33 @@ async function handleCommand(command: string): Promise<void> {
     case "hardReset":
     case "hr":
       {
-        // TODO: test and fix hardreset
-        rl.pause();
-        const data = await serialCom.hardReset();
-        console.log(
-          data.type === OperationResultType.commandResult
-            ? data.result
-              ? "Board reset successfully."
-              : "Board reset failed."
-            : "Invalid response."
-        );
-        rl.prompt();
-        rl.resume();
+        rl.question("Do you want to follow hard reset? (y/n): ", answer => {
+          const follow = answer.trim().toLowerCase() === "y";
+          interupOnInput = true;
+          serialCom
+            .hardReset(
+              follow
+                ? (data: Buffer) => {
+                    relayInput = true;
+                    process.stdout.write(data);
+                  }
+                : undefined
+            )
+            .then(data => {
+              interupOnInput = false;
+              relayInput = false;
+              console.log(
+                data.type === OperationResultType.commandResult
+                  ? data.result
+                    ? "Board reset successfully."
+                    : "Board reset failed."
+                  : "Invalid response."
+              );
+              rl.prompt();
+              rl.resume();
+            })
+            .catch(console.error);
+        });
       }
       break;
 
@@ -841,6 +864,11 @@ handleCommand("help")
           PicoSerialEvents.relayInput,
           Buffer.from(line.trim(), "utf-8")
         );
+
+        return;
+      } else if (interupOnInput) {
+        interupOnInput = false;
+        serialCom.interruptExecution();
 
         return;
       }

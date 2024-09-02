@@ -2,7 +2,7 @@ import { EventEmitter } from "events";
 import { SerialPort } from "serialport";
 import { PicoSerialEvents } from "./picoSerialEvents.js";
 import { Queue } from "./queue.js";
-import { enterRawRepl, readUntil } from "./serialHelper.js";
+import { enterRawRepl, readUntil, stopRunningStuff } from "./serialHelper.js";
 import { CommandType, type Command } from "./command.js";
 import {
   type OperationResult,
@@ -10,6 +10,8 @@ import {
 } from "./operationResult.js";
 import { executeAnyCommand } from "./commandExec.js";
 import type { ProgressCallback } from "./progressCallback.js";
+
+const BUFFER_CR = Buffer.from("\r");
 
 /**
  * Singleton class for handling serial communication with a MicroPython device.
@@ -29,7 +31,9 @@ export class PicoMpyCom extends EventEmitter {
   /// if set to true, no new operation will be executed only the already enqueued ones
   private serialPortClosing = false;
   private followReset?: (data: Buffer) => void;
-  private resetResolve?: (data: OperationResult) => void;
+  private resetResolve?: (
+    value: OperationResult | PromiseLike<OperationResult>
+  ) => void;
 
   private constructor() {
     // TODO: maybe set option to auto capture rejections
@@ -94,24 +98,74 @@ export class PicoMpyCom extends EventEmitter {
     });
 
     this.serialPort.on("close", () => {
+      // TODO: move out of PicoMpyCom and into a separate file as it's hardware specific
       if (this.resetInProgress) {
-        this.resetInProgress = false;
-        // wait 2 seconds and reconnect
-        setTimeout(() => {
-          console.debug("Reopening serial port after reset...");
-          this.reopenSerialPort();
-          if (this.resetResolve && !this.followReset) {
-            this.resolveReset();
+        const onRelayInput = (data: Buffer): void => {
+          if (data.length > 0) {
+            this.serialPort?.write(Buffer.concat([data, BUFFER_CR]), err => {
+              if (err) {
+                this.emit(PicoSerialEvents.relayInputError, err);
+              }
+            });
           }
-        }, 2000);
+        };
+        const onReadable = (): void => {
+          if (!this.serialPort) {
+            return;
+          }
+          const onInter = (): void => {
+            if (this.serialPort) {
+              stopRunningStuff(this.serialPort);
+            }
+          };
+          this.once(PicoSerialEvents.interrupt, onInter);
+          readUntil(this.serialPort, 2, "\n>>> ", null, this.followReset)
+            .catch(() => {
+              // Do nothing
+            })
+            .finally(() => {
+              this.resetInProgress = false;
+              this.followReset = undefined;
+              this.off(PicoSerialEvents.relayInput, onRelayInput);
+              this.off(PicoSerialEvents.interrupt, onInter);
+              this.resolveReset();
+              this.onPortOpened();
+              this.executeNextOperation();
+            });
+        };
+
+        let retries = 0;
+
+        const reopening = (): void => {
+          this.serialPort?.open((error?: Error | null) => {
+            if (error) {
+              if (retries++ > 40) {
+                this.resetInProgress = false;
+                this.resolveReset();
+                void this.closeSerialPort();
+
+                return;
+              }
+
+              // wait 100ms and try again
+              setTimeout(reopening, 50);
+            } else {
+              this.serialPort?.once("readable", onReadable);
+              if (this.followReset && this.serialPort) {
+                this.on(PicoSerialEvents.relayInput, onRelayInput);
+              }
+
+              // only disable now as previous it would be to early and open would trigger
+              this.resetInProgress = false;
+            }
+          });
+        };
+        // wait 200ms and reconnect
+        setTimeout(reopening, 400);
       } else {
         this.emit(PicoSerialEvents.portClosed);
       }
     });
-
-    /*this.serialPort.on("data", data => {
-      console.log(data instanceof Buffer ? data.toString("utf-8") : data);
-    });*/
   }
 
   private resolveReset(): void {
@@ -122,7 +176,6 @@ export class PicoMpyCom extends EventEmitter {
       });
       this.resetResolve = undefined;
     }
-    this.executeNextOperation();
   }
 
   private onPortOpened(): void {
@@ -186,42 +239,10 @@ export class PicoMpyCom extends EventEmitter {
       this.serialPort = undefined;
       this.operationInProgress = true;
       this.serialPortClosing = false;
+      this.resetInProgress = false;
+      this.followReset = undefined;
+      this.resetResolve = undefined;
     }
-  }
-
-  private reopenSerialPort(): void {
-    if (!this.serialPort || this.serialPort.isOpen) {
-      return;
-    }
-
-    if (this.followReset) {
-      const onRelayInput = (data: Buffer): void => {
-        this.serialPort?.write(data);
-      };
-      const onReadable = (): void => {
-        readUntil(this.serialPort!, 5, "\n>>> ", null, this.followReset)
-          // TODO: check if finally is executed after catch if catch was executed
-          .catch(() => {
-            this.resetInProgress = false;
-            this.followReset = undefined;
-            this.off(PicoSerialEvents.relayInput, onRelayInput);
-            this.onPortOpened();
-          })
-          .finally(() => {
-            // avoid retriggering if catch is executed
-            if (this.followReset) {
-              this.resetInProgress = false;
-              this.followReset = undefined;
-              this.off(PicoSerialEvents.relayInput, onRelayInput);
-              this.onPortOpened();
-            }
-          });
-      };
-      this.serialPort.once("readable", onReadable);
-      this.on(PicoSerialEvents.relayInput, onRelayInput);
-    }
-
-    this.serialPort.open();
   }
 
   // TODO: maybe move callbacks into Commands
@@ -266,6 +287,7 @@ export class PicoMpyCom extends EventEmitter {
           if (command.type === CommandType.hardReset) {
             this.resetInProgress = true;
             this.followReset = receiver;
+            this.resetResolve = resolve;
           }
 
           readyStateCb?.(true);

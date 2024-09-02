@@ -258,6 +258,12 @@ export function executeHardResetCommand(port: SerialPort): OperationResult {
 
 /**
  * Operation to execute a Command of type command and return the result.
+ *
+ * @param port The serial port where the board is connected to.
+ * @param emitter The event emitter to listen for events.
+ * @param command The command to execute.
+ * @param receiver The function to receive the data as it comes in.
+ * @returns The result of the operation.
  */
 export async function executeCommandCommand(
   port: SerialPort,
@@ -339,7 +345,7 @@ export async function executeListContentsCommand(
   emitter: EventEmitter,
   command: Command<CommandType.listContents>
 ): Promise<OperationResult> {
-  ok(command.args.target);
+  ok(command.args.target !== undefined);
   // TODO: possibility to remove silent fail and maybe check if directory not
   // exists or is a file
   const result = await fsListContents(port, emitter, command.args.target, true);
@@ -360,7 +366,7 @@ export async function executeListContentsRecursiveCommand(
   emitter: EventEmitter,
   command: Command<CommandType.listContentsRecursive>
 ): Promise<OperationResult> {
-  ok(command.args.target);
+  ok(command.args.target !== undefined);
   const result = await fsListContentsRecursive(
     port,
     emitter,
@@ -1103,9 +1109,14 @@ export async function executeRunFileCommand(
   ok(command.args.files && command.args.files.length === 1);
 
   try {
-    await runFile(port, command.args.files[0], emitter, receiver);
+    const result = await runFile(
+      port,
+      command.args.files[0],
+      emitter,
+      receiver
+    );
 
-    return { type: OperationResultType.commandResult, result: true };
+    return { type: OperationResultType.commandResult, result: result };
   } catch {
     return { type: OperationResultType.commandResult, result: false };
   }

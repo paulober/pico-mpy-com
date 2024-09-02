@@ -745,7 +745,7 @@ export async function fsListContents(
 export async function fsListContentsRecursive(
   port: SerialPort,
   emitter: EventEmitter,
-  target = ""
+  target = "/"
 ): Promise<FileData[]> {
   // keep indentation as small as possible
   // to reduce the amount of bytes sent
@@ -759,7 +759,7 @@ def __pe_recursive_ls(src):
   print('{:12} {}{}'.format(f[3] if len(f) > 3 else 0, path, '/' if is_dir else ''))
   if is_dir:
    __pe_recursive_ls(src + ('/' if src[-1] != '/' else '') + f[0])
-__pe_recursive_ls(${target.length > 0 ? `'${target}'` : ""})
+__pe_recursive_ls(${target.length > 0 ? `'${target}'` : `'/'`})
 del __pe_recursive_ls
 `;
 
@@ -1374,7 +1374,7 @@ export async function runFile(
   file: string,
   emitter: EventEmitter,
   receiver: (data: Buffer) => void
-): Promise<void> {
+): Promise<boolean> {
   let fileHandle: FileHandle | undefined = undefined;
   try {
     fileHandle = await hostFsOpen(file, "r");
@@ -1400,6 +1400,10 @@ export async function runFile(
     if (error) {
       throw new Error(error);
     }
+
+    return true;
+  } catch {
+    return false;
   } finally {
     await fileHandle?.close();
   }
