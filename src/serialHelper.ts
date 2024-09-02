@@ -1453,20 +1453,10 @@ del __pe_RTC
 }
 
 // TODO: needs more work to be able to continue connection and receive output
-export async function hardReset(
-  port: SerialPort,
-  emitter: EventEmitter,
-  receiver?: (data: Buffer) => void
-): Promise<void> {
+export function hardReset(port: SerialPort): void {
   stopRunningStuff(port);
-  await executeCommand(
-    port,
-    "\rimport machine\nmachine.reset()",
-    emitter,
-    receiver,
-    true,
-    true
-  );
+  port.write("\rimport machine\nmachine.reset()");
+  port.write(BUFFER_04);
 }
 
 /**

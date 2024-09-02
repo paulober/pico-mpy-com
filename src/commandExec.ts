@@ -19,6 +19,7 @@ import {
   fsRmdirRecursive,
   fsStat,
   getRtcTime,
+  hardReset,
   interactiveCtrlD,
   retrieveTabCompletion,
   runFile,
@@ -223,10 +224,28 @@ export async function executeAnyCommand(
 
     //case CommandType.factoryResetFilesystem:
     //  return executeFactoryResetFilesystemCommand(port);
+    case CommandType.hardReset:
+      return executeHardResetCommand(port);
 
     default:
       // "Unknown command type"
       return { type: OperationResultType.none };
+  }
+}
+
+/**
+ *
+ *
+ * @param port
+ * @returns
+ */
+export function executeHardResetCommand(port: SerialPort): OperationResult {
+  try {
+    hardReset(port);
+
+    return { type: OperationResultType.commandResult, result: true };
+  } catch {
+    return { type: OperationResultType.commandResult, result: false };
   }
 }
 
