@@ -234,10 +234,10 @@ export async function executeAnyCommand(
 }
 
 /**
+ * Perform a hard reset on the board.
  *
- *
- * @param port
- * @returns
+ * @param port The serial port where the board is connected to.
+ * @returns The result of the operation.
  */
 export function executeHardResetCommand(port: SerialPort): OperationResult {
   try {
