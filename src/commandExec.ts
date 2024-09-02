@@ -23,6 +23,7 @@ import {
   interactiveCtrlD,
   retrieveTabCompletion,
   runFile,
+  runRemoteFile,
   stopRunningStuff,
   syncRtc,
 } from "./serialHelper.js";
@@ -202,6 +203,16 @@ export async function executeAnyCommand(
         port,
         emitter,
         command as Command<CommandType.runFile>,
+        receiver
+      );
+
+    case CommandType.runRemoteFile:
+      ok(receiver, "Receiver must be provided for run remote file command");
+
+      return executeRunRemoteFileCommand(
+        port,
+        emitter,
+        command as Command<CommandType.runRemoteFile>,
         receiver
       );
 
@@ -1106,12 +1117,38 @@ export async function executeRunFileCommand(
   command: Command<CommandType.runFile>,
   receiver: (data: Buffer) => void
 ): Promise<OperationResult> {
-  ok(command.args.files && command.args.files.length === 1);
+  ok(command.args.file);
 
   try {
-    const result = await runFile(
+    const result = await runFile(port, command.args.file[0], emitter, receiver);
+
+    return { type: OperationResultType.commandResult, result: result };
+  } catch {
+    return { type: OperationResultType.commandResult, result: false };
+  }
+}
+
+/**
+ * Run a remote file on the board.
+ *
+ * @param port The serial port where the board is connected to.
+ * @param emitter An event emitter.
+ * @param command The command to execute.
+ * @param receiver A function to receive the data as it comes in.
+ * @returns The result of the operation.
+ */
+export async function executeRunRemoteFileCommand(
+  port: SerialPort,
+  emitter: EventEmitter,
+  command: Command<CommandType.runRemoteFile>,
+  receiver: (data: Buffer) => void
+): Promise<OperationResult> {
+  ok(command.args.file);
+
+  try {
+    const result = await runRemoteFile(
       port,
-      command.args.files[0],
+      command.args.file,
       emitter,
       receiver
     );

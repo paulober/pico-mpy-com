@@ -631,7 +631,26 @@ export class PicoMpyCom extends EventEmitter {
     return this.enqueueCommandOperation(
       {
         type: CommandType.runFile,
-        args: { files: [file] },
+        args: { files: file },
+      },
+      follow,
+      readyStateCb
+    );
+  }
+
+  public async runRemoteFile(
+    file: string,
+    readyStateCb: (open: boolean) => void,
+    follow: (data: Buffer) => void
+  ): Promise<OperationResult> {
+    if (this.isPortDisconnected()) {
+      return { type: OperationResultType.none };
+    }
+
+    return this.enqueueCommandOperation(
+      {
+        type: CommandType.runRemoteFile,
+        args: { file },
       },
       follow,
       readyStateCb

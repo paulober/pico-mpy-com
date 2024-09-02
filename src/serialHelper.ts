@@ -22,6 +22,7 @@ import {
 import { basename } from "path";
 import type { ProgressCallback } from "./progressCallback.js";
 import { sanitizePath } from "./scanAndHash.js";
+import { dirname as dirnamePosix } from "path/posix";
 
 // NOTE! it's encouraged to __pe_ as prefix for variables and functions defined
 // in the MicroPython REPL's global scope
@@ -1408,6 +1409,64 @@ export async function runFile(
     await fileHandle?.close();
   }
 }
+
+/**
+ * Executes a file on the connected board
+ * that is stored in its filesystem.
+ *
+ * @param port The serial port to write to.
+ * @param file The file to execute.
+ * @param emitter The event emitter to listen to for interrupt events or relayInput events.
+ * @param receiver The function to call with the data received from the serial port.
+ * @returns True if the file was executed successfully, otherwise false.
+ */
+export async function runRemoteFile(
+  port: SerialPort,
+  file: string,
+  emitter: EventEmitter,
+  receiver: (data: Buffer) => void
+): Promise<boolean> {
+  if (file.includes("'")) {
+    return false;
+  }
+
+  try {
+    await executeCommand(
+      port,
+      `import os; _pe_dir=os.getcwd(); os.chdir('${dirnamePosix(
+        file
+      )}'); del os;`,
+      emitter,
+      undefined,
+      true,
+      true
+    );
+    // TODO: maybe switch to exec(open.read) if execfile gets removed
+    const error = await executeCommandInteractive(
+      port,
+      `execfile('${basename(file)}')`,
+      emitter,
+      receiver
+    );
+    // run as extra command call so it gets executed even if an interrupt happens
+    await executeCommand(
+      port,
+      "import os; os.chdir(_pe_dir); del _pe_dir",
+      emitter,
+      undefined,
+      true,
+      true
+    );
+    if (error) {
+      throw new Error(error);
+    }
+
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Synchronizes the RTC of the connected board with the current time.
  * If no the board does not support the RTC api it will throw an error.

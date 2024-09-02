@@ -3,6 +3,7 @@ export enum CommandType {
   expression,
   tabComplete,
   runFile,
+  runRemoteFile,
   doubleCtrlC,
   listContents,
   listContentsRecursive,
@@ -30,7 +31,8 @@ interface CommandArgsMapping {
   [CommandType.command]: { command: string; interactive?: boolean };
   [CommandType.expression]: { code: string };
   [CommandType.tabComplete]: { code: string };
-  [CommandType.runFile]: { files: string[] };
+  [CommandType.runFile]: { file: string };
+  [CommandType.runRemoteFile]: { file: string };
   [CommandType.doubleCtrlC]: object;
   [CommandType.listContents]: { target: string };
   [CommandType.listContentsRecursive]: { target: string };

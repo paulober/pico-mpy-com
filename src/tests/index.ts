@@ -2,7 +2,7 @@ import { PicoMpyCom } from "../picoMpyCom.js";
 import { createInterface } from "readline";
 import { PicoSerialEvents } from "../picoSerialEvents.js";
 import { OperationResultType } from "../operationResult.js";
-import { hardReset } from "../serialHelper.js";
+import { hardReset, runRemoteFile } from "../serialHelper.js";
 
 const serialCom = PicoMpyCom.getInstance();
 
@@ -58,6 +58,10 @@ const commands: Record<string, Command> = {
   runFile: {
     aliases: ["rf", "run"],
     description: "Runs a local file on the board.",
+  },
+  runRemoteFile: {
+    aliases: ["rrf", "runRemote"],
+    description: "Runs a file on the board.",
   },
   getRtcTime: {
     aliases: ["grt", "getRtcTime"],
@@ -348,6 +352,44 @@ async function handleCommand(command: string): Promise<void> {
                   setTimeout(() => {
                     serialCom.interruptExecution();
                   }, 5000);
+                }
+              },
+              (data: Buffer) => {
+                process.stdout.write(data);
+              }
+            )
+            .then(data => {
+              relayInput = false;
+              if (data.type === OperationResultType.commandResult) {
+                console.log(
+                  data.result
+                    ? "File executed successfully."
+                    : "File execution failed."
+                );
+              }
+              resolve();
+            })
+            .catch(reject);
+        });
+      });
+      break;
+
+    case "runRemoteFile":
+    case "rrf":
+      await new Promise<void>((resolve, reject) => {
+        rl.question("Enter the file to run: ", file => {
+          rl.pause();
+          serialCom
+            .runRemoteFile(
+              file,
+              (open: boolean) => {
+                if (open) {
+                  relayInput = true;
+                  rl.resume();
+                  // for testing of interrupts
+                  /*setTimeout(() => {
+                    serialCom.interruptExecution();
+                  }, 5000);*/
                 }
               },
               (data: Buffer) => {
