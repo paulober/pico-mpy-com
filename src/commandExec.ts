@@ -1120,7 +1120,7 @@ export async function executeRunFileCommand(
   ok(command.args.file);
 
   try {
-    const result = await runFile(port, command.args.file[0], emitter, receiver);
+    const result = await runFile(port, command.args.file, emitter, receiver);
 
     return { type: OperationResultType.commandResult, result: result };
   } catch {

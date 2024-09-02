@@ -599,6 +599,7 @@ export async function evaluteExpression(
       expression instanceof Buffer ? expression.toString("utf-8") : expression
     );
   } else {
+    // TODO: fails with multiple expressions/statements in one string
     command = `
 _pe_r = False; _pe_s = """${
       expression instanceof Buffer
