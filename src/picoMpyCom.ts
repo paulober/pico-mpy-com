@@ -632,7 +632,7 @@ export class PicoMpyCom extends EventEmitter {
     return this.enqueueCommandOperation(
       {
         type: CommandType.runFile,
-        args: { files: file },
+        args: { file },
       },
       follow,
       readyStateCb
