@@ -488,6 +488,7 @@ export class PicoMpyCom extends EventEmitter {
    * @returns The result of the operation.
    */
   public async hardReset(
+    readyStateCb?: (open: boolean) => void,
     follow?: (data: Buffer) => void
   ): Promise<OperationResult> {
     if (this.isPortDisconnected()) {

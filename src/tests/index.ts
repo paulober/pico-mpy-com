@@ -806,12 +806,24 @@ async function handleCommand(command: string): Promise<void> {
       {
         rl.question("Do you want to follow hard reset? (y/n): ", answer => {
           const follow = answer.trim().toLowerCase() === "y";
-          interupOnInput = true;
+          if (!follow) {
+            interupOnInput = true;
+          }
+          rl.pause();
           serialCom
             .hardReset(
+              (open: boolean) => {
+                if (open) {
+                  if (follow) {
+                    relayInput = true;
+                  } else {
+                    interupOnInput = true;
+                  }
+                  rl.resume();
+                }
+              },
               follow
                 ? (data: Buffer) => {
-                    relayInput = true;
                     process.stdout.write(data);
                   }
                 : undefined
