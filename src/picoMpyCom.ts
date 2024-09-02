@@ -805,8 +805,7 @@ export class PicoMpyCom extends EventEmitter {
    * Interrupts the execution of most kinds of operations if currently in progress.
    */
   public interruptExecution(): void {
-    // don't mess with hard resets
-    if (this.isPortDisconnected() || this.resetInProgress) {
+    if (this.isPortDisconnected()) {
       return;
     }
 
