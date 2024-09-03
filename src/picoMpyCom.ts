@@ -457,13 +457,16 @@ export class PicoMpyCom extends EventEmitter {
    * @param receiver A callback to receive the data from the board.
    * @param pythonInterpreterPath A path to a local python interpreter
    * for wrapping expressions. Can speed up execution of expressions.
+   * @param dynamicWrapping if enabled it will use on device expression detection
+   * if nor ; or : is detected within the command.
    * @returns
    */
   public async runFriendlyCommand(
     command: string,
     readyStateCb: (open: boolean) => void,
     receiver: (data: Buffer) => void,
-    pythonInterpreterPath?: string
+    pythonInterpreterPath?: string,
+    dynamicWrapping?: boolean
   ): Promise<OperationResult> {
     if (this.isPortDisconnected()) {
       return { type: OperationResultType.none };
@@ -472,7 +475,7 @@ export class PicoMpyCom extends EventEmitter {
     return this.enqueueCommandOperation(
       {
         type: CommandType.expression,
-        args: { code: command },
+        args: { code: command, dynamicWrapping },
       },
       receiver,
       readyStateCb,
@@ -934,6 +937,17 @@ export class PicoMpyCom extends EventEmitter {
       follow,
       readyStateCb
     );
+  }
+
+  public async garbageCollect(): Promise<OperationResult> {
+    if (this.isPortDisconnected()) {
+      return { type: OperationResultType.none };
+    }
+
+    return this.enqueueCommandOperation({
+      type: CommandType.garbageCollect,
+      args: {},
+    });
   }
 
   // doesn't work on the pico

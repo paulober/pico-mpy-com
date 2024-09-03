@@ -24,12 +24,13 @@ export enum CommandType {
   hardReset,
   ctrlD,
   factoryResetFilesystem,
+  garbageCollect,
 }
 
 // TODO: it should not be possible to have every command type also accept args = {}
 interface CommandArgsMapping {
   [CommandType.command]: { command: string; interactive?: boolean };
-  [CommandType.expression]: { code: string };
+  [CommandType.expression]: { code: string; dynamicWrapping?: boolean };
   [CommandType.tabComplete]: { code: string };
   [CommandType.runFile]: { file: string };
   [CommandType.runRemoteFile]: { file: string };
@@ -70,6 +71,7 @@ interface CommandArgsMapping {
   [CommandType.hardReset]: object;
   [CommandType.ctrlD]: object;
   [CommandType.factoryResetFilesystem]: object;
+  [CommandType.garbageCollect]: object;
 }
 
 type RequiredArgs<T extends CommandType> = CommandArgsMapping[T];

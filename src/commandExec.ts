@@ -2,6 +2,7 @@ import type { EventEmitter } from "events";
 import type { SerialPort } from "serialport";
 import {
   CHUNK_SIZE,
+  doGarbageCollection,
   enterRawRepl,
   evaluteExpression,
   executeCommand,
@@ -238,6 +239,9 @@ export async function executeAnyCommand(
     case CommandType.hardReset:
       return executeHardResetCommand(port);
 
+    case CommandType.garbageCollect:
+      return executeGarbageCollectionCommand(port, emitter);
+
     default:
       // "Unknown command type"
       return { type: OperationResultType.none };
@@ -330,7 +334,8 @@ export async function executeExpressionCommand(
       command.args.code,
       emitter,
       receiver,
-      pythonInterpreterPath
+      pythonInterpreterPath,
+      command.args.dynamicWrapping
     );
 
     if (error) {
@@ -1441,3 +1446,23 @@ export async function executeFactoryResetFilesystemCommand(
   }
 }
 */
+
+/**
+ * Execute a command for garbage collection on the board.
+ *
+ * @param port The serial port where the board is connected to.
+ * @param emitter The event emitter to listen for events.
+ * @returns The result of the operation.
+ */
+export async function executeGarbageCollectionCommand(
+  port: SerialPort,
+  emitter: EventEmitter
+): Promise<OperationResult> {
+  try {
+    await doGarbageCollection(port, emitter);
+
+    return { type: OperationResultType.commandResult, result: true };
+  } catch {
+    return { type: OperationResultType.commandResult, result: false };
+  }
+}

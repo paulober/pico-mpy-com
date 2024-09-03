@@ -599,8 +599,9 @@ async function handleCommand(command: string): Promise<void> {
               },
               (data: Buffer) => {
                 process.stdout.write(data);
-              } //,
-              //"python"
+              },
+              "python",
+              true
             )
             .then(data => {
               relayInput = false;

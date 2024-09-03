@@ -590,10 +590,14 @@ export async function evaluteExpression(
   expression: string | Buffer,
   emitter: EventEmitter,
   receiver: (data: Buffer) => void,
-  pythonInterpreterPath?: string
+  pythonInterpreterPath?: string,
+  dynamicWrapping = false
 ): Promise<string | null> {
   let command = "";
-  if (pythonInterpreterPath) {
+  if (
+    pythonInterpreterPath &&
+    (!dynamicWrapping || expression.includes(";") || expression.includes(":"))
+  ) {
     command = wrapExpressionWithPrint(
       pythonInterpreterPath,
       expression instanceof Buffer ? expression.toString("utf-8") : expression
@@ -689,7 +693,11 @@ export async function fsExists(
   target = ""
 ): Promise<boolean> {
   try {
-    await executeCommand(port, `import os\nos.stat('${target}')`, emitter);
+    await executeCommand(
+      port,
+      `import os as _pe_os\n_pe_os.stat('${target}')\ndel _pe_os`,
+      emitter
+    );
 
     return true;
   } catch {
@@ -720,10 +728,11 @@ export async function fsListContents(
   try {
     const result = await executeCommand(
       port,
-      `import os\nfor f in os.ilistdir(${
+      `import os as _pe_os\nfor f in _pe_os.ilistdir(${
         remotePath ? `"${remotePath}"` : ""
       }):\n` +
-        " print('{:12} {}{}'.format(f[3]if len(f)>3 else 0,f[0],'/'if f[1]&0x4000 else ''))",
+        " print('{:12} {}{}'.format(f[3]if len(f)>3 else 0,f[0],'/'if f[1]&0x4000 else ''))\n" +
+        "del _pe_os",
       emitter
     );
 
@@ -753,9 +762,9 @@ export async function fsListContentsRecursive(
   // to reduce the amount of bytes sent
   // TODO: add max depth !!
   const cmd = `
-import os
+import os as _pe_os
 def __pe_recursive_ls(src):
- for f in os.ilistdir(src):
+ for f in _pe_os.ilistdir(src):
   is_dir = f[1] & 0x4000
   path = src + ('/' if src[-1] != '/' else '') + f[0]
   print('{:12} {}{}'.format(f[3] if len(f) > 3 else 0, path, '/' if is_dir else ''))
@@ -763,6 +772,7 @@ def __pe_recursive_ls(src):
    __pe_recursive_ls(src + ('/' if src[-1] != '/' else '') + f[0])
 __pe_recursive_ls(${target.length > 0 ? `'${target}'` : `'/'`})
 del __pe_recursive_ls
+del _pe_os
 `;
 
   try {
@@ -784,13 +794,14 @@ export async function fsStat(
   // TODO: maybe move computation from board to host
   // os.stat_result(insert the eval result of repr(os.stat))
   const command = `
-import os
+import os as _pe_os
 def __pe_get_file_info(file_path):
- stat = os.stat(file_path)
+ stat = _pe_os.stat(file_path)
  creation_time = stat[9]
  modification_time = stat[8]
  size = stat[6]
  print('{"creationTime": ' + str(creation_time) + ', "modificationTime": ' + str(modification_time) + ', "size": ' + str(size) + ', "isDir": ' + str((stat[0] & 0o170000) == 0o040000).lower() + '}')
+del _pe_os
 `;
 
   try {
@@ -833,7 +844,8 @@ export async function fsFileSize(
   emitter: EventEmitter,
   item: string
 ): Promise<number | undefined> {
-  const command = "import os\nprint(os.stat('" + item + "')[6])";
+  const command =
+    "import os as _pe_os\nprint(_pe_os.stat('" + item + "')[6])\ndel _pe_os";
 
   try {
     const result = await executeCommand(port, command, emitter);
@@ -1156,7 +1168,7 @@ export async function fsMkdir(
 ): Promise<void> {
   await executeCommand(
     port,
-    `import os\nos.mkdir('${target}')`,
+    `import os as _pe_os\n_pe_os.mkdir('${target}')\ndel _pe_os`,
     emitter,
     undefined,
     silentFail
@@ -1182,7 +1194,7 @@ export async function fsRmdir(
 ): Promise<void> {
   await executeCommand(
     port,
-    `import os\nos.rmdir('${target}')`,
+    `import os as _pe_os\n_pe_os.rmdir('${target}')\ndel _pe_os`,
     emitter,
     undefined,
     silentFail
@@ -1205,18 +1217,19 @@ export async function fsRmdirRecursive(
   //const commandShort = `import os; def __pe_deltree(target): [__pe_deltree((current:=target + d) if target == '/' else (current:=target + '/' + d)) or os.remove(current) for d in os.listdir(target)]; os.rmdir(target) if target != '/' else None; __pe_deltree('${target}'); del __pe_deltree`;
 
   const command = `
-import os
+import os as _pe_os
 def __pe_deltree(target):
- for d in os.listdir(target):
+ for d in _pe_os.listdir(target):
   current = target.rstrip('/') + '/' + d
   try:
    __pe_deltree(current)
   except OSError:
-   os.remove(current)
+   _pe_os.remove(current)
  if target != '/':
-  os.rmdir(target)
+  _pe_os.rmdir(target)
 __pe_deltree('${target}')
 del __pe_deltree
+del _pe_os
 `;
 
   await executeCommand(port, command, emitter);
@@ -1227,7 +1240,11 @@ export async function fsRemove(
   target: string,
   emitter: EventEmitter
 ): Promise<void> {
-  await executeCommand(port, `import os\nos.remove('${target}')`, emitter);
+  await executeCommand(
+    port,
+    `import os as _pe_os\n_pe_os.remove('${target}')\ndel _pe_os`,
+    emitter
+  );
 }
 
 export async function fsRename(
@@ -1238,7 +1255,7 @@ export async function fsRename(
 ): Promise<void> {
   await executeCommand(
     port,
-    `import os\nos.rename('${oldName}','${newName}')`,
+    `import os as _pe_os\n_pe_os.rename('${oldName}','${newName}')\ndel _pe_os`,
     emitter
   );
 }
@@ -1276,14 +1293,15 @@ export async function fsIsDir(
   emitter: EventEmitter
 ): Promise<boolean> {
   const command = `
-import os
+import os as _pe_os
 def __pe_is_dir(file_path):
  try:
-  return (os.stat(file_path)[0] & 0o170000) == 0o040000
+  return (_pe_os.stat(file_path)[0] & 0o170000) == 0o040000
  except OSError:
   return False
 print(__pe_is_dir('${target}'))
 del __pe_is_dir
+del _pe_os
 `;
 
   const { data, error } = await executeCommandWithResult(
@@ -1315,26 +1333,26 @@ export async function fsCalcFilesHashes(
   emitter: EventEmitter
 ): Promise<HashResponse[]> {
   const command = `
-import uhashlib
-import ubinascii
-import os
-import json
+import uhashlib as _pe_uhashlib
+import ubinascii as _pe_ubinascii
+import os as _pe_os
+import json as _pe_json
 
 def __pe_hash_file(file):
  try:
-  if os.stat(file)[6] > 200 * 1024:
-   print(json.dumps({"file": file, "error": "File too large"}))
+  if _pe_os.stat(file)[6] > 200 * 1024:
+   print(_pe_json.dumps({"file": file, "error": "File too large"}))
    return
   with open(file, 'rb') as f:
-   h = uhashlib.sha256()
+   h = _pe_uhashlib.sha256()
    while True:
     data = f.read(512)
     if not data:
      break
     h.update(data)
-   print(json.dumps({"file": file, "hash": ubinascii.hexlify(h.digest()).decode()}))
+   print(_pe_json.dumps({"file": file, "hash": _pe_ubinascii.hexlify(h.digest()).decode()}))
  except Exception as e:
-  print(json.dumps({"file": file, "error": f"{e.__class__.__name__}: {e}"}))
+  print(_pe_json.dumps({"file": file, "error": f"{e.__class__.__name__}: {e}"}))
 `;
 
   await executeCommand(port, command, emitter);
@@ -1361,7 +1379,7 @@ def __pe_hash_file(file):
 
   await executeCommand(
     port,
-    "del __pe_hash_file",
+    "del __pe_hash_file\ndel _pe_os\ndel _pe_uhashlib\ndel _pe_ubinascii\ndel _pe_json",
     emitter,
     undefined,
     true,
@@ -1434,9 +1452,9 @@ export async function runRemoteFile(
   try {
     await executeCommand(
       port,
-      `import os; _pe_dir=os.getcwd(); os.chdir('${dirnamePosix(
+      `import os as _pe_os; _pe_dir=_pe_os.getcwd(); _pe_os.chdir('${dirnamePosix(
         file
-      )}'); del os;`,
+      )}'); del _pe_os;`,
       emitter,
       undefined,
       true,
@@ -1452,7 +1470,7 @@ export async function runRemoteFile(
     // run as extra command call so it gets executed even if an interrupt happens
     await executeCommand(
       port,
-      "import os; os.chdir(_pe_dir); del _pe_dir",
+      "import os as _pe_os\n_pe_os.chdir(_pe_dir)\ndel _pe_dir\ndel _pe_os",
       emitter,
       undefined,
       true,
@@ -1659,3 +1677,23 @@ export async function interactiveCtrlD(
 //export async function fsFactoryReset(port: SerialPort): Promise<void> {
 //  await executeCommand(port, "import os\nos.mkfs('/flash')");
 //}
+
+/**
+ * Performs garbage collection on the connected board.
+ *
+ * @param port The serial port to write to.
+ * @param emitter The event emitter to listen to for interrupt events.
+ */
+export async function doGarbageCollection(
+  port: SerialPort,
+  emitter: EventEmitter
+): Promise<void> {
+  await executeCommand(
+    port,
+    "import gc as __pe_gc\n__pe_gc.collect()\ndel __pe_gc",
+    emitter,
+    undefined,
+    true,
+    true
+  );
+}
