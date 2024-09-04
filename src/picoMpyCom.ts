@@ -63,7 +63,10 @@ export class PicoMpyCom extends EventEmitter {
     // Raspberry Pi VID and Pico MicroPython CDC PID
     // TODO: maybe also return fiendly name
     return ports
-      .filter(port => port.vendorId === "2E8A" && port.productId === "0005")
+      .filter(
+        port =>
+          port.vendorId?.toLowerCase() === "2e8a" && port.productId === "0005"
+      )
       .map(port => port.path);
   }
 
