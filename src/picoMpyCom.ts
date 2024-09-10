@@ -10,6 +10,7 @@ import {
 } from "./operationResult.js";
 import { executeAnyCommand } from "./commandExec.js";
 import type { ProgressCallback } from "./progressCallback.js";
+import { isUsbDeviceSupported } from "./usbIds.js";
 
 const BUFFER_CR = Buffer.from("\r");
 
@@ -62,12 +63,7 @@ export class PicoMpyCom extends EventEmitter {
 
     // Raspberry Pi VID and Pico MicroPython CDC PID
     // TODO: maybe also return fiendly name
-    return ports
-      .filter(
-        port =>
-          port.vendorId?.toLowerCase() === "2e8a" && port.productId === "0005"
-      )
-      .map(port => port.path);
+    return ports.filter(isUsbDeviceSupported).map(port => port.path);
   }
 
   /**
