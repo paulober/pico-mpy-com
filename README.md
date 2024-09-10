@@ -1,6 +1,6 @@
 # Pico MPY Com
 
-This is a simple NPM package for communicating with a Raspberry Pi Pico (2) boards running MicroPython.
+This is a simple NPM package for communicating with a Raspberry Pi Pico boards running MicroPython.
 It utilizes serial over USB to communicate with the board.
 
 > Note: It's possible to use this package with other boards running MicroPython, but it's not guaranteed to work. In order to do so, you need your own port detection as the built-in one is specific to Raspberry Pi Pico MicroPython firmware (CDC) | Vendor ID = `0x2E8A` and Product ID `0x0005`.
@@ -60,7 +60,7 @@ if (result.type === OperationResultType.commandResponse) {
 await serialCom.closeSerialPort();
 ```
 
-> Note: The port detcted are filter by the `vendorId` and `productId` of the Raspberry Pi Pico board with MicroPython (CDC) firmware.
+> Note: The ports detected are filtered by `vendorId` and `productId` of the Raspberry Pi Pico board with MicroPython (CDC) firmware.
 
 ## Docs (TODO)
 
