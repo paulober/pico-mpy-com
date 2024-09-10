@@ -801,7 +801,6 @@ def __pe_get_file_info(file_path):
  modification_time = stat[8]
  size = stat[6]
  print('{"creationTime": ' + str(creation_time) + ', "modificationTime": ' + str(modification_time) + ', "size": ' + str(size) + ', "isDir": ' + str((stat[0] & 0o170000) == 0o040000).lower() + '}')
-del _pe_os
 `;
 
   try {
@@ -810,7 +809,7 @@ del _pe_os
       command +
         `__pe_get_file_info('${item}')\n` +
         // cleanup memory
-        "del __pe_get_file_info",
+        "del __pe_get_file_info\ndel _pe_os",
       emitter
     );
 
@@ -1294,13 +1293,10 @@ export async function fsIsDir(
 ): Promise<boolean> {
   const command = `
 import os as _pe_os
-def __pe_is_dir(file_path):
- try:
-  return (_pe_os.stat(file_path)[0] & 0o170000) == 0o040000
- except OSError:
-  return False
-print(__pe_is_dir('${target}'))
-del __pe_is_dir
+try:
+ print((_pe_os.stat('${target}')[0] & 0o170000) == 0o040000)
+except OSError:
+ print(False)
 del _pe_os
 `;
 
@@ -1450,11 +1446,12 @@ export async function runRemoteFile(
   }
 
   try {
+    // del os as running the remote may require every bit of memory
     await executeCommand(
       port,
       `import os as _pe_os; _pe_dir=_pe_os.getcwd(); _pe_os.chdir('${dirnamePosix(
         file
-      )}'); del _pe_os;`,
+      )}'); del _pe_os`,
       emitter,
       undefined,
       true,

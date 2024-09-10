@@ -2,7 +2,6 @@ import { PicoMpyCom } from "../picoMpyCom.js";
 import { createInterface } from "readline";
 import { PicoSerialEvents } from "../picoSerialEvents.js";
 import { OperationResultType } from "../operationResult.js";
-import { hardReset, runRemoteFile } from "../serialHelper.js";
 
 const serialCom = PicoMpyCom.getInstance();
 
