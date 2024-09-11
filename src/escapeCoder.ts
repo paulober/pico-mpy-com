@@ -3,23 +3,37 @@ import type { FileHandle } from "fs/promises";
 
 /**
  * Replace simple escape sequences in a string with their respective characters.
+ * (only escape sequences used by the python bytes object)
  *
  * @param str The string to process.
  * @returns The string with all simple escape sequences replaced.
  */
 function replaceSimpleEscapeSequences(str: string): string {
   // TODO: single pass maybe loop or match any \any and then replace with lambda
-  return str
-    .replace(/\\'/g, "'")
-    .replace(/\\"/g, '"')
-    .replace(/\\a/g, "\x07") // Bell/alert
-    .replace(/\\b/g, "\b") // Backspace
-    .replace(/\\f/g, "\f") // Form feed
-    .replace(/\\n/g, "\n") // New line
-    .replace(/\\r/g, "\r") // Carriage return
-    .replace(/\\t/g, "\t") // Tab
-    .replace(/\\v/g, "\v") // Vertical tab
-    .replace(/\\\\/g, "\\"); // Backslash
+  return (
+    str // TODO: support that there is no extra backslashes in front of the escape sequences
+      .replace(/\\'/g, "'")
+      .replace(/\\"/g, '"')
+      .replace(/\\a/g, "\x07") // Bell/alert
+      // eslint-disable-next-line no-control-regex
+      .replace(/\\\x07/g, "\\a") // Intentional escape sequence
+      // DOES HAVE MANY ISSUES
+      //.replace(/\\b/g, "\b") // Backspace
+      .replace(/\\f/g, "\f") // Form feed
+      .replace(/\\\f/g, "\\f") // Intentional escape sequence
+      .replace(/\\n/g, "\n") // New line
+      .replace(/\\\n/g, "\\n") // Intentional escape sequence
+      .replace(/\\r/g, "\r") // Carriage return
+      .replace(/\\\r/g, "\\r") // Intentional escape sequence
+      .replace(/\\t/g, "\t") // Tab
+      .replace(/\\\t/g, "\\t") // Intentional escape sequence
+      .replace(/\\v/g, "\v") // Vertical tab
+      .replace(/\\\v/g, "\\v") // Intentional escape sequence
+    // don't do this as escaped backslashes are handled also
+    // below where if \ after \ it will only print one
+    // and also they are needed to identify intentional escape sequences by the user below
+    //.replace(/\\\\/g, "\\")  // Backslash
+  );
 }
 
 /**
@@ -66,9 +80,9 @@ export async function writeEncodedBufferToFile(
         waitingForHex = true;
       } else if (byte === 92) {
         // second backslash,
-        // mean first one was false alarm, write one and keep one in cache
-        // because it could be the the second one is now starting an escape sequence
-        await fileHandle.write(Buffer.from([byte]));
+        // means first one was false alarm, write one as the first one escaped the second one
+        await fileHandle.write(Buffer.from(cache));
+        cache.length = 0;
       } else {
         // ok, false alarm, put everything into file and reset cache
         await fileHandle.write(Buffer.from(cache));
@@ -100,17 +114,28 @@ export async function writeEncodedBufferToFile(
  * @returns The string with all simple escape sequences replaced.
  */
 function encodeSimpleEscapeSequences(str: string): string {
-  return str
-    .replace(/\\/g, "\\\\") // Backslash
-    .replace(/\n/g, "\\n") // New line
-    .replace(/\t/g, "\\t") // Tab
-    .replace(/\r/g, "\\r") // Carriage return
-    .replace(/\f/g, "\\f") // Form feed
-    .replace("\b", "\\b") // Backspace
-    .replace(/\v/g, "\\v") // Vertical tab
-    .replace("\x07", "\\a") // Bell/alert
-    .replace(/'/g, "\\'") // Single quote
-    .replace(/"/g, '\\"'); // Double quote
+  return (
+    str
+      // not required
+      //.replace(/\\n/g, "\\\\n") // New line esc sequence by the user
+      //.replace(/\\t/g, "\\\\t") // Tab esc sequence by the user
+      //.replace(/\\r/g, "\\\\r") // Carriage return esc sequence by the user
+      //.replace(/\\f/g, "\\\\f") // Form feed esc sequence by the user
+      //.replace(/\\b/g, "\\\\b") // Backspace esc sequence by the user
+      //.replace(/\\v/g, "\\\\v") // Vertical tab esc sequence by the user
+      //.replace("\\x07", "\\\\x07") // Bell/alert esc sequence by the user
+      //.replace(/\\/g, "\\\\") // Backslash
+
+      .replace(/\n/g, "\\n") // New line
+      .replace(/\t/g, "\\t") // Tab
+      .replace(/\r/g, "\\r") // Carriage return
+      .replace(/\f/g, "\\f") // Form feed
+      .replace("\b", "\\b") // Backspace
+      .replace(/\v/g, "\\v") // Vertical tab
+      .replace("\x07", "\\a") // Bell/alert
+      .replace(/'/g, "\\'") // Single quote
+      .replace(/"/g, '\\"') // Double quote
+  );
 }
 
 /**
