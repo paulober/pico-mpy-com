@@ -1418,7 +1418,17 @@ export async function runFile(
     }
 
     return true;
-  } catch {
+  } catch (error) {
+    receiver(
+      Buffer.from(
+        error instanceof Error
+          ? error.message
+          : typeof error === "string"
+          ? error
+          : "Unknown error"
+      )
+    );
+
     return false;
   } finally {
     await fileHandle?.close();
@@ -1478,7 +1488,17 @@ export async function runRemoteFile(
     }
 
     return true;
-  } catch {
+  } catch (error) {
+    receiver(
+      Buffer.from(
+        error instanceof Error
+          ? error.message
+          : typeof error === "string"
+          ? error
+          : "Unknown error"
+      )
+    );
+
     return false;
   }
 }

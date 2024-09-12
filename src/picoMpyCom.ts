@@ -71,7 +71,7 @@ export class PicoMpyCom extends EventEmitter {
    * @param port The port to connect to.
    */
   public async openSerialPort(port: string): Promise<void> {
-    if (this.serialPort?.path === port) {
+    if (this.serialPort?.path === port && this.serialPort.isOpen) {
       return;
     }
 
