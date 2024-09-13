@@ -76,7 +76,7 @@ export class PicoMpyCom extends EventEmitter {
     }
 
     if (this.serialPort) {
-      await this.closeSerialPort();
+      await this.closeSerialPort(this.serialPort.closed);
     }
 
     this.serialPort = new SerialPort({
