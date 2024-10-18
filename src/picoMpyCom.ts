@@ -118,11 +118,12 @@ export class PicoMpyCom extends EventEmitter {
             }
           };
           this.once(PicoSerialEvents.interrupt, onInter);
-          readUntil(this.serialPort, 2, "\n>>> ", null, this.followReset)
+          readUntil(this.serialPort, 2, ">OK", null, this.followReset)
             .catch(() => {
               // Do nothing
             })
             .finally(() => {
+              this.serialPort?.write(BUFFER_CR);
               this.resetInProgress = false;
               this.followReset = undefined;
               this.off(PicoSerialEvents.relayInput, onRelayInput);

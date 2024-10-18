@@ -1554,7 +1554,7 @@ del __pe_RTC
 // TODO: needs more work to be able to continue connection and receive output
 export function hardReset(port: SerialPort): void {
   stopRunningStuff(port);
-  port.write("\rimport machine\nmachine.reset()");
+  port.write(Buffer.from("\rimport machine\nmachine.reset()", "utf-8"));
   port.write(BUFFER_04);
 }
 
