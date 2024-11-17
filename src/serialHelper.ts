@@ -1310,7 +1310,7 @@ del _pe_os
     throw new Error(error);
   }
 
-  return data === "True";
+  return data.trim() === "True";
 }
 
 /**
