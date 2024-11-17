@@ -848,9 +848,6 @@ async function handleCommand(command: string): Promise<void> {
       {
         rl.question("Do you want to follow hard reset? (y/n): ", answer => {
           const follow = answer.trim().toLowerCase() === "y";
-          if (!follow) {
-            interupOnInput = true;
-          }
           rl.pause();
           serialCom
             .hardReset(
@@ -921,7 +918,6 @@ handleCommand("help")
 
         return;
       } else if (interupOnInput) {
-        interupOnInput = false;
         serialCom.interruptExecution();
 
         return;

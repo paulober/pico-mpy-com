@@ -35,6 +35,9 @@ export class PicoMpyCom extends EventEmitter {
   private resetResolve?: (
     value: OperationResult | PromiseLike<OperationResult>
   ) => void;
+  // flag to indicate if main.py exists on the board
+  // so the follow op can account for it
+  private mainPyExists = false;
 
   private constructor() {
     // TODO: maybe set option to auto capture rejections
@@ -118,7 +121,13 @@ export class PicoMpyCom extends EventEmitter {
             }
           };
           this.once(PicoSerialEvents.interrupt, onInter);
-          readUntil(this.serialPort, 2, ">OK", null, this.followReset)
+          readUntil(
+            this.serialPort,
+            2,
+            this.mainPyExists ? "\n>>> " : ">OK",
+            null,
+            this.followReset
+          )
             .catch(() => {
               // Do nothing
             })
@@ -288,6 +297,38 @@ export class PicoMpyCom extends EventEmitter {
             this.resetInProgress = true;
             this.followReset = receiver;
             this.resetResolve = resolve;
+
+            // check if main.py is present
+            const result = await executeAnyCommand(
+              this.serialPort,
+              this,
+              {
+                type: CommandType.getItemStat,
+                args: { item: "main.py" },
+              },
+              undefined,
+              pythonInterpreterPath,
+              undefined
+            );
+
+            if (result.type !== OperationResultType.getItemStat) {
+              // reset state
+              this.resetInProgress = false;
+              this.followReset = undefined;
+              this.resetResolve = undefined;
+
+              // continue processing of the queue
+              this.executeNextOperation();
+
+              resolve({
+                type: OperationResultType.commandResult,
+                result: false,
+              });
+
+              return;
+            }
+
+            this.mainPyExists = result.stat !== null && !result.stat.isDir;
           }
 
           readyStateCb?.(true);
