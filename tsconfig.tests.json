@@ -1,29 +1,30 @@
 {
-	"compilerOptions": {
-		"module": "Node16",
-		"target": "ES2022",
-		"lib": [
-			"ES2023"
-		],
-		"sourceMap": true,
-		"declaration": true,
-		"allowJs": false,
-		"rootDir": "src",
-		"outDir": "dist",
-		"strict": true,
-		"noImplicitAny": true,
-		"noImplicitReturns": true,
-		"noFallthroughCasesInSwitch": true,
-		"forceConsistentCasingInFileNames": true,
-		"esModuleInterop": true,
-		"moduleResolution": "node16"
-	},
-	"exclude": [
-		"node_modules",
-		"./out",
-		"./dist"
-	],
-	"include": [
-		"src/**/*.ts"
-	]
+  "compilerOptions": {
+    "module": "Node16",
+    "target": "ES2022",
+    "lib": [
+      "ES2023"
+    ],
+    "sourceMap": true,
+    "declaration": true,
+    "declarationDir": "./dist/tests",
+    "allowJs": false,
+    "rootDir": "src",
+    "outDir": "dist",
+    "strict": true,
+    "noImplicitAny": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "forceConsistentCasingInFileNames": true,
+    "esModuleInterop": true,
+    "moduleResolution": "node16"
+  },
+  "exclude": [
+    "node_modules",
+    "./out",
+    "./dist"
+  ],
+  "include": [
+    "src/**/*.ts"
+  ]
 }
