@@ -42,27 +42,27 @@
     "dist/*.d.ts"
   ],
   "dependencies": {
-    "@serialport/bindings-cpp": "^12.0.1",
-    "serialport": "^12.0.0"
+    "@serialport/bindings-cpp": "^13.0.1",
+    "serialport": "^13.0.0"
   },
   "devDependencies": {
-    "@eslint/js": "^9.15.0",
-    "@rollup/plugin-commonjs": "^28.0.1",
+    "@eslint/js": "^9.18.0",
+    "@rollup/plugin-commonjs": "^28.0.2",
     "@rollup/plugin-json": "^6.1.0",
-    "@rollup/plugin-node-resolve": "^15.3.0",
+    "@rollup/plugin-node-resolve": "^16.0.0",
     "@rollup/plugin-terser": "^0.4.4",
-    "@rollup/plugin-typescript": "^12.1.1",
+    "@rollup/plugin-typescript": "^12.1.2",
     "@serialport/bindings-interface": "^1.2.2",
     "@types/eslint": "^9.6.1",
     "@types/node": "^20.14",
-    "eslint": "^9.15.0",
-    "eslint-config-prettier": "^9.1.0",
-    "globals": "^15.12.0",
+    "eslint": "^9.18.0",
+    "eslint-config-prettier": "^10.0.1",
+    "globals": "^15.14.0",
     "rimraf": "^6.0.1",
-    "rollup": "^4.27.2",
+    "rollup": "^4.30.1",
     "tslib": "^2.8.1",
-    "typescript": "^5.6.3",
-    "typescript-eslint": "^8.14.0"
+    "typescript": "^5.7.3",
+    "typescript-eslint": "^8.20.0"
   },
-  "packageManager": "pnpm@10.0.0-alpha.2+sha512.f18a59ca3611002321af7681e6d49234cb3ece8496b05818be5b1081168ec21b8c3d28cbb4351e2fdec66ca95e6516faaf08b95b755013c88cf5174d5029865c"
+  "packageManager": "pnpm@10.0.0+sha512.b8fef5494bd3fe4cbd4edabd0745df2ee5be3e4b0b8b08fa643aa3e4c6702ccc0f00d68fa8a8c9858a735a0032485a44990ed2810526c875e416f001b17df12b"
 }
