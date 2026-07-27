@@ -1,109 +1,61 @@
 import { ok } from "assert";
 import type { FileHandle } from "fs/promises";
 
-/**
- * Replace simple escape sequences in a string with their respective characters.
- * (only escape sequences used by the python bytes object)
- *
- * @param str The string to process.
- * @returns The string with all simple escape sequences replaced.
- */
-function replaceSimpleEscapeSequences(str: string): string {
-  // TODO: single pass maybe loop or match any \any and then replace with lambda
-  return (
-    str // TODO: support that there is no extra backslashes in front of the escape sequences
-      .replace(/\\'/g, "'")
-      .replace(/\\"/g, '"')
-      .replace(/\\a/g, "\x07") // Bell/alert
-      // eslint-disable-next-line no-control-regex
-      .replace(/\\\x07/g, "\\a") // Intentional escape sequence
-      // DOES HAVE MANY ISSUES
-      //.replace(/\\b/g, "\b") // Backspace
-      .replace(/\\f/g, "\f") // Form feed
-      .replace(/\\\f/g, "\\f") // Intentional escape sequence
-      .replace(/\\n/g, "\n") // New line
-      .replace(/\\\n/g, "\\n") // Intentional escape sequence
-      .replace(/\\r/g, "\r") // Carriage return
-      .replace(/\\\r/g, "\\r") // Intentional escape sequence
-      .replace(/\\t/g, "\t") // Tab
-      .replace(/\\\t/g, "\\t") // Intentional escape sequence
-      .replace(/\\v/g, "\v") // Vertical tab
-      .replace(/\\\v/g, "\\v") // Intentional escape sequence
-    // don't do this as escaped backslashes are handled also
-    // below where if \ after \ it will only print one
-    // and also they are needed to identify intentional escape sequences by the user below
-    //.replace(/\\\\/g, "\\")  // Backslash
-  );
-}
+// Single-byte escape sequences a Python bytes repr can emit. Every other
+// non-printable byte is emitted as \xNN and handled separately below.
+const SIMPLE_ESCAPES: Record<string, number> = {
+  "\\": 0x5c,
+  "'": 0x27,
+  '"': 0x22,
+  n: 0x0a,
+  r: 0x0d,
+  t: 0x09,
+  a: 0x07,
+  b: 0x08,
+  f: 0x0c,
+  v: 0x0b,
+};
 
 /**
- * Decode an escaped ASCII representation of a binary chunk
- * and write it to a file.
+ * Decode the ASCII string repr of a Python bytes object (as sent by the board
+ * during a download) back into the exact raw bytes and write them to a file.
  *
- * @param escaped The escaped ASCII string to parse.
- * @param fileHandle The file handle to write the binary data to.
+ * Decoding is a single left-to-right pass over the escape sequences. A naive
+ * regex pre-pass corrupts data whose bytes happen to look like escape
+ * sequences — e.g. a backslash (0x5c) followed by a newline (0x0a) was turned
+ * into a backslash followed by 'n' (0x6e). See MicroPico #319.
+ *
+ * @param escaped The escaped ASCII string (repr content without the b'...' wrapper).
+ * @param fileHandle The file handle to write the decoded binary data to.
  */
 export async function writeEncodedBufferToFile(
   escaped: string,
   fileHandle: FileHandle
 ): Promise<void> {
-  // first replace simple escape sequences
-  const processed = replaceSimpleEscapeSequences(escaped);
+  // The decoded output is never longer than the escaped input.
+  const out = Buffer.allocUnsafe(escaped.length);
+  let len = 0;
 
-  const binaryData = Buffer.from(processed, "utf-8");
-  const cache: number[] = [];
-  let waitingForHex = false;
-  for (const byte of binaryData) {
-    // if the byte is a backslash
-    // - store it in cache
-    // - go to next byte
-    // - if it is not an x write the cache and it to the fileHandle
-    // - if it is an x clear the cache and store the next two bytes
-    // - these two bytes are one hex number so convert them to one number
-    // - write the number to the fileHandle
-    // if the byte is not a backslash write it to the fileHandle
+  for (let i = 0; i < escaped.length; i++) {
+    if (escaped[i] !== "\\") {
+      out[len++] = escaped.charCodeAt(i);
+      continue;
+    }
 
-    if (cache.length === 0) {
-      if (!waitingForHex && byte === 92) {
-        cache.push(byte);
-      } else if (!waitingForHex) {
-        await fileHandle.write(Buffer.from([byte]));
-      } else {
-        // waiting for hex
-        cache.push(byte);
-      }
-    } else if (cache.length === 1 && !waitingForHex) {
-      // first detected \ is in cache
-
-      if (byte === 120) {
-        cache.length = 0;
-        waitingForHex = true;
-      } else if (byte === 92) {
-        // second backslash,
-        // means first one was false alarm, write one as the first one escaped the second one
-        await fileHandle.write(Buffer.from(cache));
-        cache.length = 0;
-      } else {
-        // ok, false alarm, put everything into file and reset cache
-        await fileHandle.write(Buffer.from(cache));
-        await fileHandle.write(Buffer.from([byte]));
-        cache.length = 0;
-      }
-    } else if (cache.length === 1 && waitingForHex) {
-      // first part of hex number is in cache
-      cache.push(byte);
-
-      // convert the two parts of the hex numbers to one number and then to decimal
-      const hexNumber = parseInt(
-        cache.map(code => String.fromCharCode(code)).join(""),
-        16
-      );
-
-      await fileHandle.write(Buffer.from([hexNumber]));
-      cache.length = 0;
-      waitingForHex = false;
+    const next = escaped[i + 1];
+    if (next === "x") {
+      out[len++] = parseInt(escaped.slice(i + 2, i + 4), 16);
+      i += 3;
+    } else if (next !== undefined && next in SIMPLE_ESCAPES) {
+      out[len++] = SIMPLE_ESCAPES[next];
+      i += 1;
+    } else {
+      // Lone trailing backslash — should not occur in a valid repr; keep it.
+      out[len++] = 0x5c;
     }
   }
+
+  await fileHandle.write(out.subarray(0, len));
 }
 
 /**

@@ -77,4 +77,23 @@ describe("writeEncodedBufferToFile", () => {
       ).toString("hex")})`
     );
   });
+
+  test("preserves a backslash followed by a newline byte (#319)", async () => {
+    // repr content of bytes e0 09 5c 0a e0 09 (int16 LE 2528, 2652, 2528).
+    // The old regex decoder turned the 0x0a into 'n' (0x6e).
+    const { writes, handle } = fakeFileHandle();
+    await writeEncodedBufferToFile("\\xe0\\t\\\\\\n\\xe0\\t", handle);
+
+    assert.equal(Buffer.concat(writes).toString("hex"), "e0095c0ae009");
+  });
+
+  test("decodes single-char escapes and hex in one pass", async () => {
+    const { writes, handle } = fakeFileHandle();
+    await writeEncodedBufferToFile("A\\tB\\nC\\\\D\\x00E", handle);
+
+    assert.deepEqual(
+      [...Buffer.concat(writes)],
+      [0x41, 0x09, 0x42, 0x0a, 0x43, 0x5c, 0x44, 0x00, 0x45]
+    );
+  });
 });
