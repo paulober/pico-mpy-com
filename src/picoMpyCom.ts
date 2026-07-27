@@ -143,8 +143,11 @@ export class PicoMpyCom extends EventEmitter {
             null,
             this.followReset
           )
-            .catch(() => {
-              // Do nothing
+            .catch((error: unknown) => {
+              console.error(
+                "[pico-mpy-com] read after reset/reconnect failed:",
+                error
+              );
             })
             .finally(() => {
               this.serialPort?.write(BUFFER_CR);

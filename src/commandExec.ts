@@ -1440,7 +1440,7 @@ export async function executeFactoryResetFilesystemCommand(
 
     return { type: OperationResultType.commandResult, result: true };
   } catch (error) {
-    console.error(error);
+    console.error("[pico-mpy-com]", error);
 
     return { type: OperationResultType.commandResult, result: false };
   }

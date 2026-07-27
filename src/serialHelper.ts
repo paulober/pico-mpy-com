@@ -512,8 +512,11 @@ export async function executeCommandWithResult(
       try {
         interrupted = true;
         stopRunningStuff(port);
-      } catch {
-        // ignore
+      } catch (error) {
+        console.error(
+          "[pico-mpy-com] failed to interrupt running program:",
+          error
+        );
       }
     }, 150);
   };
@@ -1368,7 +1371,7 @@ def __pe_hash_file(file):
       }
     } catch (error) {
       // this is more serious as it could mean that the json module or the hashing module is not available
-      console.error(error);
+      console.error("[pico-mpy-com]", error);
     }
   }
 
@@ -1654,8 +1657,11 @@ export async function interactiveCtrlD(
     setTimeout(() => {
       try {
         stopRunningStuff(port);
-      } catch {
-        // ignore
+      } catch (error) {
+        console.error(
+          "[pico-mpy-com] failed to interrupt running program:",
+          error
+        );
       }
     }, 150);
   };
