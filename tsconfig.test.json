@@ -1,0 +1,19 @@
+{
+  "compilerOptions": {
+    "module": "Node16",
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "moduleResolution": "node16",
+    "rootDir": "src",
+    "outDir": "test-out",
+    "strict": true,
+    "noImplicitAny": true,
+    "noImplicitReturns": true,
+    "forceConsistentCasingInFileNames": true,
+    "declaration": false,
+    "sourceMap": false,
+    "removeComments": true
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["node_modules", "out", "dist", "src/tests"]
+}

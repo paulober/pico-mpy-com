@@ -33,7 +33,10 @@
     "build": "webpack --env build=production",
     "build-tests": "webpack --env build=development",
     "lint": "eslint src",
-    "test": "npm run lint && npm run build-tests && node ./dist/tests/index.cjs"
+    "typecheck": "tsc --noEmit",
+    "pretest": "rimraf test-out",
+    "test": "tsc -p tsconfig.test.json && node --test \"test-out/**/*.test.js\"",
+    "test:repl": "npm run build-tests && node ./dist/tests/index.cjs"
   },
   "files": [
     "dist/*.cjs",
