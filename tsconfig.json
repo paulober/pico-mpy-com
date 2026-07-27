@@ -3,7 +3,7 @@
     "module": "Node16",
     "target": "ES2022",
     "lib": [
-      "ES2023",
+      "ES2022",
     ],
     "sourceMap": true,
     "declaration": true,
@@ -11,14 +11,10 @@
     "rootDir": "src",
     "outDir": "dist",
     "allowJs": false,
-    "strict": true, /* enable all strict type-checking options */
-    /* Additional Checks */
+    "strict": true,
     "noImplicitAny": true,
-    "noImplicitReturns": true, /* Report error when not all code paths in function return a value. */
-    // "noFallthroughCasesInSwitch": true, /* Report errors for fallthrough cases in switch statement. */
-    // "noUnusedParameters": true,  /* Report errors on unused parameters. */
+    "noImplicitReturns": true,
     "forceConsistentCasingInFileNames": true,
-    "esModuleInterop": false,
     "moduleResolution": "node16"
   },
   "exclude": [

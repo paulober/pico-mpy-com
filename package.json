@@ -2,7 +2,6 @@
   "name": "@paulober/pico-mpy-com",
   "version": "1.0.23",
   "author": "paulober",
-  "publisher": "raspberry-pi",
   "description": "A nodejs library for communicating with USB devices running the MicroPython firmware.",
   "license": "Apache-2.0",
   "publishConfig": {
@@ -14,7 +13,7 @@
   },
   "type": "module",
   "engines": {
-    "node": ">=20.14.0"
+    "node": ">=20.19.1"
   },
   "os": [
     "win32",
@@ -30,11 +29,11 @@
   "markdown": "github",
   "minimumNodeVersion": 20,
   "scripts": {
-    "prepack": "rimraf dist && pnpm build",
-    "build": "rollup -c --environment BUILD:production",
-    "build-tests": "rollup -c --environment BUILD:development",
+    "prepack": "rimraf dist && npm run build",
+    "build": "webpack --env build=production",
+    "build-tests": "webpack --env build=development",
     "lint": "eslint src",
-    "test": "pnpm lint && pnpm build-tests && node ./dist/tests/index.cjs"
+    "test": "npm run lint && npm run build-tests && node ./dist/tests/index.cjs"
   },
   "files": [
     "dist/*.cjs",
@@ -46,23 +45,20 @@
     "serialport": "^13.0.0"
   },
   "devDependencies": {
-    "@eslint/js": "^9.18.0",
-    "@rollup/plugin-commonjs": "^28.0.2",
-    "@rollup/plugin-json": "^6.1.0",
-    "@rollup/plugin-node-resolve": "^16.0.0",
-    "@rollup/plugin-terser": "^0.4.4",
-    "@rollup/plugin-typescript": "^12.1.2",
+    "@eslint/js": "^9.39.1",
     "@serialport/bindings-interface": "^1.2.2",
     "@types/eslint": "^9.6.1",
-    "@types/node": "^20.14",
-    "eslint": "^9.18.0",
-    "eslint-config-prettier": "^10.0.1",
-    "globals": "^15.14.0",
-    "rimraf": "^6.0.1",
-    "rollup": "^4.30.1",
+    "@types/node": "^20.19",
+    "eslint": "^9.39.1",
+    "eslint-config-prettier": "^10.1.8",
+    "globals": "^16.5.0",
+    "rimraf": "^6.1.2",
+    "ts-loader": "^9.5.4",
     "tslib": "^2.8.1",
-    "typescript": "^5.7.3",
-    "typescript-eslint": "^8.20.0"
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.48.0",
+    "webpack": "^5.103.0",
+    "webpack-cli": "^6.0.1"
   },
-  "packageManager": "pnpm@10.10.0+sha512.d615db246fe70f25dcfea6d8d73dee782ce23e2245e3c4f6f888249fb568149318637dca73c2c5c8ef2a4ca0d5657fb9567188bfab47f566d1ee6ce987815c39"
+  "packageManager": "npm@11.6.4+sha512.1118cab46a05a50aee6bff5b1b4fa1df18afff89d57465620a3518035026955db87c5bdf9d207b07b7487d99f2490d450cb774655ad63ec2cba7bf1d0ad25d45"
 }

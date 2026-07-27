@@ -3,7 +3,7 @@
     "module": "Node16",
     "target": "ES2022",
     "lib": [
-      "ES2023"
+      "ES2022"
     ],
     "sourceMap": true,
     "declaration": true,
@@ -16,7 +16,6 @@
     "noImplicitReturns": true,
     "noFallthroughCasesInSwitch": true,
     "forceConsistentCasingInFileNames": true,
-    "esModuleInterop": true,
     "moduleResolution": "node16"
   },
   "exclude": [

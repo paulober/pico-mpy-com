@@ -1,52 +1,45 @@
 import globals from "globals";
-
-import tseslint from "typescript-eslint";
-
 import js from "@eslint/js";
+import tseslint from "typescript-eslint";
 import eslintConfigPrettier from "eslint-config-prettier";
 
-export default tseslint.config(
+export default [
   js.configs.recommended,
-  ...tseslint.configs.recommendedTypeChecked,
-  ...tseslint.configs.stylisticTypeChecked,
+  ...tseslint.configs.recommended,
   eslintConfigPrettier,
+
   {
+    files: ["src/**/*.ts"],
+    ignores: ["dist/**", "out/**"],
     languageOptions: {
-      ecmaVersion: 14,
+      ecmaVersion: "latest",
       sourceType: "module",
+      parser: tseslint.parser,
       globals: {
         ...globals.node,
         ...globals.es6,
-        ...globals.commonjs
+        ...globals.commonjs,
       },
-      parserOptions: {
-        projectService: {
-          defaultProject: "tsconfig.tests.json",
-          allowDefaultProject: ["src/tests/*.ts"],
-        },
-        tsconfigRootDir: import.meta.dirname,
-      }
     },
-    ignores: [
-      "src/test/",
-      "out/",
-      "dist/"
-    ],
-    files: ["src/**/*.ts"],
     rules: {
       "@typescript-eslint/naming-convention": "warn",
       "@typescript-eslint/no-unused-vars": "warn",
       "@typescript-eslint/no-explicit-any": "warn",
       "@typescript-eslint/array-type": ["error", { default: "array-simple" }],
-      "@typescript-eslint/consistent-type-imports": ["error", { prefer: "type-imports" }],
-      "@typescript-eslint/explicit-function-return-type": ["error", { allowExpressions: true }],
-      "@typescript-eslint/consistent-type-exports": "error",
+      "@typescript-eslint/consistent-type-imports": [
+        "error",
+        { prefer: "type-imports" },
+      ],
+      "@typescript-eslint/explicit-function-return-type": [
+        "error",
+        { allowExpressions: true },
+      ],
       "@typescript-eslint/no-unsafe-return": "off",
-      "semi": "warn",
+
+      semi: "off",
       curly: "warn",
       eqeqeq: "warn",
       "no-throw-literal": "warn",
-      semi: "off",
       "no-mixed-requires": "error",
       "no-this-before-super": "warn",
       "no-unreachable": "warn",
@@ -58,6 +51,6 @@ export default tseslint.config(
       "arrow-body-style": ["error", "as-needed"],
       "no-unexpected-multiline": "error",
       "prefer-const": "warn",
-    }
-  }
-);
+    },
+  },
+];
