@@ -36,6 +36,7 @@
     "typecheck": "tsc --noEmit",
     "pretest": "rimraf test-out",
     "test": "tsc -p tsconfig.test.json && node --test \"test-out/**/*.test.js\"",
+    "test:coverage": "tsc -p tsconfig.test.json && node --test --experimental-test-coverage \"test-out/**/*.test.js\"",
     "test:repl": "npm run build-tests && node ./dist/tests/index.cjs"
   },
   "files": [
