@@ -1,4 +1,3 @@
-import { execSync } from "child_process";
 import type FileData from "./fileData.js";
 import { existsSync, mkdirSync } from "fs";
 import { dirname, join } from "path";
@@ -112,66 +111,6 @@ export interface StatResponse {
 
 export function parseStatJson(data: string): StatResponse {
   return JSON.parse(data);
-}
-
-/**
- * Uses python built-in abstract syntax tree (ast) module to wrap
- * the provided Python code with print statements for each expression
- * where necessary.
- *
- * @param pythonExe The Python executable to use.
- * @param code The Python code to wrap.
- * @returns The wrapped Python code or unmodified code if an error occurred.
- */
-export function wrapExpressionWithPrint(
-  pythonExe: string,
-  code: string
-): string {
-  /* class PrintWrapper(ast.NodeTransformer):
-    def visit_Expr(self, node):
-        if not (isinstance(node.value, ast.Call)
-            and isinstance(node.value.func, ast.Name) and node.value.func.id == "print"):
-            new_node = ast.Expr(value=ast.Call(
-                func=ast.Name(id='print', ctx=ast.Load()),
-                args=[node.value],
-                keywords=[]
-            ))
-            return new_node
-        return node
-
-def wrap_expressions_with_print(code):
-    try:
-        tree = ast.parse(code)
-        wrapped_tree = PrintWrapper().visit(tree)
-        wrapped_code = ast.unparse(wrapped_tree)
-        return wrapped_code
-    except Exception:
-        return code*/
-  const escapedCode = code
-    .replaceAll(/"/g, '\\"')
-    .replaceAll(/'/g, "\\'")
-    // as the command for executing python doesn't support multiline
-    .replaceAll(/\n/g, "\\n");
-  // eslint-disable-next-line max-len
-  const oneLiner = `import ast; wrap_expressions_with_print=lambda code:ast.unparse(PrintWrapper().visit(ast.parse(code))) if not isinstance(None,Exception) else code; PrintWrapper=type('PrintWrapper',(ast.NodeTransformer,),{'visit_Expr':lambda self,node:(ast.Expr(value=ast.Call(func=ast.Name(id='print',ctx=ast.Load()),args=[node.value],keywords=[])) if not (isinstance(node.value,ast.Call) and isinstance(node.value.func,ast.Name) and node.value.func.id=='print') else node)}); print(wrap_expressions_with_print('''${escapedCode}'''))`;
-
-  try {
-    // Execute the Python code using the provided Python executable
-    const result = execSync(`${pythonExe} -c "${oneLiner}"`, {
-      encoding: "utf8",
-      // Timeout after 10 seconds
-      timeout: 10 * 1000,
-      stdio: [
-        "ignore", // stdin
-        "pipe", // stdout
-        "ignore", // stderr
-      ],
-    });
-
-    return result;
-  } catch {
-    return code;
-  }
 }
 
 /**

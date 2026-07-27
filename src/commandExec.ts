@@ -317,8 +317,9 @@ export async function executeCommandCommand(
  * @param emitter The event emitter to listen for events.
  * @param command The command to execute.
  * @param receiver The function to receive the data as it comes in.
- * @param pythonInterpreterPath A path to a local python interpreter
- * for wrapping expressions. Can speed up execution of expressions.
+ * @param _pythonInterpreterPath Vestigial: expressions are now evaluated
+ * board-side via "single" compile mode, so no host Python is used. Retained
+ * for call/API compatibility.
  * @returns The result of the operation.
  */
 export async function executeExpressionCommand(
@@ -326,16 +327,14 @@ export async function executeExpressionCommand(
   emitter: EventEmitter,
   command: Command<CommandType.expression>,
   receiver: (data: Buffer) => void,
-  pythonInterpreterPath?: string
+  _pythonInterpreterPath?: string
 ): Promise<OperationResult> {
   try {
     const error = await evaluteExpression(
       port,
       command.args.code,
       emitter,
-      receiver,
-      pythonInterpreterPath,
-      command.args.dynamicWrapping
+      receiver
     );
 
     if (error) {

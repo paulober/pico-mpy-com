@@ -9,7 +9,6 @@ import {
   parseListContentsPacket,
   parseStatJson,
   rp2DatetimeToDate,
-  wrapExpressionWithPrint,
 } from "./packetProcessing.js";
 import { type FileHandle, open as hostFsOpen } from "fs/promises";
 import { injectedImportHookCode } from "./injectedImportHook.js";
@@ -607,7 +606,6 @@ export async function executeCommand(
  *
  * @param port The serial port to write to.
  * @param expression The expression to evaluate.
- * @param pythonInterpreterPath The path to the python interpreter it can use.
  * @param emitter The function will listen to the relayInput event until the command finishes.
  * @returns Null if not error otherwise the error message.
  */
@@ -615,28 +613,20 @@ export async function evaluteExpression(
   port: SerialPort,
   expression: string,
   emitter: EventEmitter,
-  receiver: (data: Buffer) => void,
-  pythonInterpreterPath?: string,
-  dynamicWrapping = false
+  receiver: (data: Buffer) => void
 ): Promise<string | null> {
-  let command = "";
-  if (
-    pythonInterpreterPath &&
-    (!dynamicWrapping || expression.includes(";") || expression.includes(":"))
-  ) {
-    command = wrapExpressionWithPrint(pythonInterpreterPath, expression);
-  } else {
-    // TODO: fails with multiple expressions/statements in one string
-    command = `
-_pe_r = False; _pe_s = """${escapeForReplEval(expression)}"""
-try:
- code=compile(_pe_s, "<string>", "eval")
- _pe_r=eval(_pe_s)
-except:
- _pe_r=exec(_pe_s)
-if _pe_r is not None:
- print(_pe_r)`;
-  }
+  // Evaluate the code on the board like an interactive REPL line. Python's
+  // "single" compile mode prints the value of an expression statement (so a
+  // bare expression, or a `stmt; expr` line such as `import uos; uos.listdir()`,
+  // shows its result) with no host Python interpreter involved. Multi-line code
+  // is not valid in single mode, so fall back to a plain exec for scripts
+  // (which carry their own print()s). See MicroPico #315.
+  const command =
+    `_pe_s = """${escapeForReplEval(expression)}"""\n` +
+    "try:\n" +
+    ' exec(compile(_pe_s, "<string>", "single"))\n' +
+    "except SyntaxError:\n" +
+    " exec(_pe_s)";
 
   return executeCommandInteractive(port, command, emitter, receiver);
 }

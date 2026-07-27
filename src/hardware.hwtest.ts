@@ -67,6 +67,13 @@ describe(
       assert.match(await evalOutput("40 + 2"), /42/);
     });
 
+    test("#315: a bare `stmt; expr` line prints the expression value", async () => {
+      // `import uos; uos.listdir()` with no explicit print must still show
+      // output (via board-side "single" compile mode) — the root of the .ls
+      // no-output bug and the removal of the host-python eval path.
+      assert.match(await evalOutput("import uos; uos.listdir()"), /\[/);
+    });
+
     test("#282: a raw byte in a bytes literal is not double-encoded", async () => {
       const out = await evalOutput("b'\\xAA'");
       assert.match(out, /b'\\xaa'/);
