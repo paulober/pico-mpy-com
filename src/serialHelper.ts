@@ -155,6 +155,12 @@ export async function readUntil(
       // reset timeout
       timeoutCount = 0;
     } else {
+      // Bail out if the port went away, otherwise a null (infinite) timeout
+      // could hang forever waiting for a device that is no longer connected.
+      if (port.closed || port.destroyed) {
+        break;
+      }
+
       timeoutCount++;
       if (timeout !== null && timeoutCount >= maxTimeoutCount) {
         break;
@@ -1687,7 +1693,11 @@ export async function interactiveCtrlD(
     relayOpen = true;
     // doesn't store response until return as receiver is provided
     // either add ,2 as skip parameter or stop sending BUFFER_CR before BUFFER_04
-    await readUntil(port, 1, "\n>>> ", 50, receiver);
+    // No idle timeout: a long-running or long-sleeping program (e.g.
+    // asyncio.sleep(120)) must not be cut off. The run ends when the program
+    // finishes (>>> prompt), the user interrupts, or the port disconnects.
+    // See MicroPico #336.
+    await readUntil(port, 1, "\n>>> ", null, receiver);
 
     return true;
   } catch {

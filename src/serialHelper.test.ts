@@ -15,8 +15,10 @@ class FakePort {
     this.data = data;
   }
 
+  closed = false;
+
   get readable(): boolean {
-    return true;
+    return !this.closed;
   }
 
   get readableLength(): number {
@@ -76,6 +78,20 @@ describe("readUntil", () => {
 
     assert.ok(result);
     assert.equal(result.toString("utf-8"), "partial output");
+  });
+
+  test("stops waiting when the port disconnects, even with no timeout", async () => {
+    const port = new FakePort(Buffer.from("partial", "utf-8"));
+    // suffix never arrives and timeout is null (infinite); the read must still
+    // return once the port reports it has closed, instead of hanging.
+    const pending = readUntil(port as unknown as SerialPort, 1, ">>> ", null);
+    setTimeout(() => {
+      port.closed = true;
+    }, 30);
+
+    const result = await pending;
+    assert.ok(result);
+    assert.equal(result.toString("utf-8"), "partial");
   });
 
   test("receiver mode streams bytes and returns the last byte", async () => {
