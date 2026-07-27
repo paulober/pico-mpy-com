@@ -41,6 +41,17 @@ const BUFFER_TAB = Buffer.from("\t");
 
 export const CHUNK_SIZE = 256;
 
+/**
+ * Escapes a user expression for safe embedding inside a Python triple-quoted
+ * string literal (`"""..."""`). Backslashes are escaped first so the user's own
+ * escape sequences survive Python's string parsing intact; otherwise a bare
+ * `b'\xAA'` is decoded by Python to U+00AA and re-encoded as two bytes
+ * (`b'\xc2\xaa'`) instead of the intended single byte. See MicroPico #282.
+ */
+export function escapeForReplEval(expression: string): string {
+  return expression.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+}
+
 function ensureBuffer(data: Buffer | string | null): Buffer {
   if (data === null) {
     return Buffer.from("");
@@ -611,7 +622,7 @@ export async function evaluteExpression(
   } else {
     // TODO: fails with multiple expressions/statements in one string
     command = `
-_pe_r = False; _pe_s = """${expression.replace(/"/g, '\\"')}"""
+_pe_r = False; _pe_s = """${escapeForReplEval(expression)}"""
 try:
  code=compile(_pe_s, "<string>", "eval")
  _pe_r=eval(_pe_s)

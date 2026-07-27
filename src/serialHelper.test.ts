@@ -1,7 +1,7 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import type { SerialPort } from "serialport";
-import { readUntil } from "./serialHelper.js";
+import { readUntil, escapeForReplEval } from "./serialHelper.js";
 
 /**
  * Minimal pull-based fake of the parts of SerialPort that readUntil touches:
@@ -39,6 +39,26 @@ class FakePort {
 function fakePort(data: Buffer): SerialPort {
   return new FakePort(data) as unknown as SerialPort;
 }
+
+describe("escapeForReplEval", () => {
+  test("keeps a bytes escape sequence intact (issue #282)", () => {
+    // b'\xAA' must reach the board with its backslash preserved, otherwise
+    // Python decodes \xAA to U+00AA and re-encodes it as two bytes.
+    assert.equal(escapeForReplEval("b'\\xAA'"), "b'\\\\xAA'");
+  });
+
+  test("escapes double quotes", () => {
+    assert.equal(escapeForReplEval('print("hi")'), 'print(\\"hi\\")');
+  });
+
+  test("escapes backslashes before quotes", () => {
+    assert.equal(escapeForReplEval('\\"'), '\\\\\\"');
+  });
+
+  test("leaves plain code untouched", () => {
+    assert.equal(escapeForReplEval("x = 1 + 2"), "x = 1 + 2");
+  });
+});
 
 describe("readUntil", () => {
   test("reads to a multi-byte suffix, byte-accurate UTF-8", async () => {
