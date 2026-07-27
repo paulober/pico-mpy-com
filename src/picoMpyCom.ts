@@ -10,7 +10,7 @@ import {
 } from "./operationResult.js";
 import { executeAnyCommand } from "./commandExec.js";
 import type { ProgressCallback } from "./progressCallback.js";
-import { isUsbDeviceSupported } from "./usbIds.js";
+import { isUsbDeviceSupported, type VidPidPair } from "./usbIds.js";
 
 const BUFFER_CR = Buffer.from("\r");
 
@@ -60,13 +60,28 @@ export class PicoMpyCom extends EventEmitter {
 
   /**
    * Returns a list of available serial ports that fit the given filter of supported devices.
+   * @param customVidPidPairs Optional array of custom VID/PID pairs to also consider as supported.
    */
-  public static async getSerialPorts(): Promise<string[]> {
+  public static async getSerialPorts(
+    customVidPidPairs?: VidPidPair[]
+  ): Promise<string[]> {
     const ports = await SerialPort.list();
 
     // Raspberry Pi VID and Pico MicroPython CDC PID
     // TODO: maybe also return fiendly name
-    return ports.filter(isUsbDeviceSupported).map(port => port.path);
+    return ports
+      .filter(port => isUsbDeviceSupported(port, customVidPidPairs))
+      .map(port => port.path);
+  }
+
+  /**
+   * Returns a list of all available serial ports without filtering by VID/PID.
+   * Useful when the user manually specifies a port that may not be in the supported list.
+   */
+  public static async getAllSerialPorts(): Promise<string[]> {
+    const ports = await SerialPort.list();
+
+    return ports.map(port => port.path);
   }
 
   /**
