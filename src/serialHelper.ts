@@ -79,8 +79,14 @@ export async function readUntil(
   let encounters = 0;
   let blockCheck = false;
 
-  const exprectedSuffix =
-    suffix instanceof Buffer ? suffix : Buffer.from(suffix, "utf-8");
+  let expectedSuffix: Buffer;
+
+  if (Buffer.isBuffer(suffix)) {
+    expectedSuffix = suffix;
+  } else {
+    // hier weiß TS sicher: suffix ist string
+    expectedSuffix = Buffer.from(suffix, "utf8");
+  }
   let timeoutCount = 0;
   const maxTimeoutCount = timeout === null ? 0 : timeout * 100;
 
@@ -92,7 +98,7 @@ export async function readUntil(
   while (true) {
     if (
       !blockCheck &&
-      buffer.subarray(-exprectedSuffix.length).equals(exprectedSuffix)
+      buffer.subarray(-expectedSuffix.length).equals(expectedSuffix)
     ) {
       if (skip !== undefined && encounters < skip) {
         encounters++;
@@ -120,12 +126,12 @@ export async function readUntil(
           // already been relayed to the receiver
           buffer = newData;
         } else {
-          // keep buffer at exprectedSuffix.length
-          if (newData.length > exprectedSuffix.length) {
-            buffer = newData.subarray(-exprectedSuffix.length);
+          // keep buffer at expectedSuffix.length
+          if (newData.length > expectedSuffix.length) {
+            buffer = newData.subarray(-expectedSuffix.length);
           } else {
             buffer = Buffer.concat([
-              buffer.subarray(-exprectedSuffix.length + newData.length),
+              buffer.subarray(-expectedSuffix.length + newData.length),
               newData,
             ]);
           }
@@ -587,7 +593,7 @@ export async function executeCommand(
  */
 export async function evaluteExpression(
   port: SerialPort,
-  expression: string | Buffer,
+  expression: string,
   emitter: EventEmitter,
   receiver: (data: Buffer) => void,
   pythonInterpreterPath?: string,
@@ -598,18 +604,11 @@ export async function evaluteExpression(
     pythonInterpreterPath &&
     (!dynamicWrapping || expression.includes(";") || expression.includes(":"))
   ) {
-    command = wrapExpressionWithPrint(
-      pythonInterpreterPath,
-      expression instanceof Buffer ? expression.toString("utf-8") : expression
-    );
+    command = wrapExpressionWithPrint(pythonInterpreterPath, expression);
   } else {
     // TODO: fails with multiple expressions/statements in one string
     command = `
-_pe_r = False; _pe_s = """${
-      expression instanceof Buffer
-        ? expression.toString("utf-8").replace(/"/g, '\\"')
-        : expression.replace(/"/g, '\\"')
-    }"""
+_pe_r = False; _pe_s = """${expression.replace(/"/g, '\\"')}"""
 try:
  code=compile(_pe_s, "<string>", "eval")
  _pe_r=eval(_pe_s)
@@ -635,7 +634,7 @@ if _pe_r is not None:
  */
 export async function executeCommandInteractive(
   port: SerialPort,
-  command: string | Buffer,
+  command: string,
   emitter: EventEmitter,
   receiver: (data: Buffer) => void
 ): Promise<string | null> {
@@ -664,7 +663,7 @@ export async function executeCommandInteractive(
     // doesn't store response until return as receiver is provided
     const { error } = await executeCommandWithResult(
       port,
-      command instanceof Buffer ? command.toString("utf-8") : command,
+      command,
       emitter,
       null,
       receiver
@@ -1394,18 +1393,24 @@ export async function runFile(
   let fileHandle: FileHandle | undefined = undefined;
   try {
     fileHandle = await hostFsOpen(file, "r");
-    let data = await fileHandle.readFile();
+    const fileData = await fileHandle.readFile();
+    let data = "";
     // close as soon as possible so user can continue editing
     await fileHandle?.close();
 
     // TODO: maybe not upload and enter full file at once in one command
-    if (file.endsWith(".mpy") && data[0] === 77) {
+    if (file.endsWith(".mpy") && fileData[0] === 77) {
       await executeCommand(
         port,
-        `_injected_buf=b'${encodeStringToEscapedBin(data, data.length)}'`,
+        `_injected_buf=b'${encodeStringToEscapedBin(
+          fileData,
+          fileData.length
+        )}'`,
         emitter
       );
-      data = Buffer.from(injectedImportHookCode, "utf-8");
+      data = injectedImportHookCode;
+    } else {
+      data = fileData.toString("utf-8");
     }
     const error = await executeCommandInteractive(
       port,

@@ -599,7 +599,7 @@ async function handleCommand(command: string): Promise<void> {
               (data: Buffer) => {
                 process.stdout.write(data);
               },
-              "python",
+              "python3",
               true
             )
             .then(data => {
