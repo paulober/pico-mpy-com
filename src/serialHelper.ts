@@ -978,23 +978,23 @@ export async function fsGet(
         undefined,
         true
       );
-      const expectedEnding = Buffer.from("\r\n", "utf8");
-      // assert that the buffer ends with the expected sequence
-      const bufferEndsWith = buffer
-        .subarray(-expectedEnding.length)
-        .equals(expectedEnding);
+      // A hardware serial REPL terminates the printed line with "\r\n"; some
+      // MicroPython ports (e.g. the Unix port over a bare PTY) send only "\n".
+      // Accept either so the trailing "'" is stripped correctly in both cases.
+      const endsWithCrlf = buffer.subarray(-2).equals(Buffer.from("\r\n"));
+      const endsWithLf = buffer.subarray(-1).equals(Buffer.from("\n"));
 
       ok(
-        bufferEndsWith,
-        "Data does not end with the expected byte sequence: " +
-          expectedEnding.toString("hex")
+        endsWithCrlf || endsWithLf,
+        'Data does not end with the expected "\\n" or "\\r\\n" sequence'
       );
 
       // TODO: maybe add more validation of the ioncoming
       // data to ensure it can be interpreted correctly
 
-      // skip first bytes b' and last bytes \r\n\x04 plus '
-      const encodedData = buffer.subarray(2, -expectedEnding.length - 1);
+      // skip first bytes b' and last bytes <ending> plus the closing '
+      const endingLength = endsWithCrlf ? 2 : 1;
+      const encodedData = buffer.subarray(2, -endingLength - 1);
 
       // empty bytes object means end of file
       if (encodedData.length === 0) {
