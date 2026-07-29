@@ -13,6 +13,14 @@ import { join } from "path";
 export interface TestBoard {
   /** Serial port path the library should open. */
   readonly port: string;
+  /**
+   * Absolute path that acts as the board's filesystem root. On real hardware
+   * this is "/"; on the Unix-port simulator "/" is the host root, so the board
+   * root is the interpreter's working directory instead. The REPL's current
+   * working directory always equals this root, so relative paths resolve here
+   * on both targets.
+   */
+  readonly root: string;
   /** Tear down the board (kill the simulator, remove temp files). */
   dispose(): Promise<void>;
 }
@@ -49,7 +57,7 @@ const sleep = (ms: number): Promise<void> =>
 export async function getTestBoard(): Promise<TestBoard> {
   const envPort = process.env.MICROPICO_TEST_PORT;
   if (envPort !== undefined) {
-    return { port: envPort, dispose: () => Promise.resolve() };
+    return { port: envPort, root: "/", dispose: () => Promise.resolve() };
   }
 
   // temp layout: <dir>/pty (the PTY link) + <dir>/board (the board filesystem).
@@ -76,6 +84,9 @@ export async function getTestBoard(): Promise<TestBoard> {
 
   return {
     port: pty,
+    // micropython runs with boardDir as its cwd, and "/" would be the host
+    // root — so the board's filesystem root is boardDir.
+    root: boardDir,
     async dispose(): Promise<void> {
       socat.kill("SIGKILL");
       await rm(dir, { recursive: true, force: true });
