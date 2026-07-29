@@ -40,3 +40,28 @@ jobs:
 
       - name: Unit tests
         run: npm test
+
+  integration:
+    name: Integration (MicroPython simulator)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install MicroPython + socat (simulator backend)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends micropython socat
+          micropython -c "print('micropython ready')"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Integration tests (against the simulator)
+        run: npm run test:integration
