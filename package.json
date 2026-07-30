@@ -37,7 +37,7 @@
     "pretest": "rimraf test-out",
     "test": "tsc -p tsconfig.test.json && node --test \"test-out/**/*.test.js\"",
     "test:coverage": "tsc -p tsconfig.test.json && node --test --experimental-test-coverage \"test-out/**/*.test.js\"",
-    "test:integration": "tsc -p tsconfig.test.json && node --test \"test-out/**/*.itest.js\"",
+    "test:integration": "tsc -p tsconfig.test.json && node --test --test-timeout=60000 --test-force-exit \"test-out/**/*.itest.js\"",
     "test:repl": "npm run build-tests && node ./dist/tests/index.cjs"
   },
   "files": [
