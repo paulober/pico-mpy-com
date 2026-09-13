@@ -39,7 +39,12 @@ jobs:
         run: npm run build
 
       - name: Unit tests
+        if: matrix.os != 'ubuntu-latest'
         run: npm test
+
+      - name: Unit tests with coverage
+        if: matrix.os == 'ubuntu-latest'
+        run: npm run test:coverage
 
   integration:
     name: Integration (MicroPython simulator)
