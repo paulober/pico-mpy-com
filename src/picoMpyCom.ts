@@ -135,7 +135,8 @@ export class PicoMpyCom extends EventEmitter {
               stopRunningStuff(this.serialPort);
             }
           };
-          this.once(PicoSerialEvents.interrupt, onInter);
+          // `on`, not `once`: a program may swallow the first Ctrl-C
+          this.on(PicoSerialEvents.interrupt, onInter);
           readUntil(
             this.serialPort,
             2,
@@ -223,7 +224,9 @@ export class PicoMpyCom extends EventEmitter {
       })
       .catch(error => {
         this.emit(PicoSerialEvents.portError, error);
-        void this.closeSerialPort();
+        // force: the queue is still locked (operationInProgress) because the
+        // handshake never finished, so a graceful close would wait forever
+        void this.closeSerialPort(true);
       });
   }
 

@@ -156,7 +156,9 @@ export async function readUntil(
     } else {
       // Bail out if the port went away, otherwise a null (infinite) timeout
       // could hang forever waiting for a device that is no longer connected.
-      if (port.closed || port.destroyed) {
+      // SerialPort emits "close" without destroying the stream, so `closed` and
+      // `destroyed` stay false; `isOpen` is the reliable signal.
+      if (!port.isOpen) {
         break;
       }
 
@@ -539,7 +541,8 @@ export async function executeCommandWithResult(
 
   try {
     if (!atomic) {
-      emitter.once(PicoSerialEvents.interrupt, onInterrupt);
+      // `on`, not `once`: a program may swallow the first Ctrl-C
+      emitter.on(PicoSerialEvents.interrupt, onInterrupt);
     }
 
     // call exe without result and then call follow
@@ -621,14 +624,35 @@ export async function evaluteExpression(
   // shows its result) with no host Python interpreter involved. Multi-line code
   // is not valid in single mode, so fall back to a plain exec for scripts
   // (which carry their own print()s). See MicroPico #315.
-  const command =
+  return executeCommandInteractive(
+    port,
+    buildReplEvalCommand(expression),
+    emitter,
+    receiver
+  );
+}
+
+/**
+ * Builds the board-side code for {@link evaluteExpression}.
+ *
+ * Only `compile` runs inside the `try`: it never executes user code, so a
+ * `SyntaxError` there means "not a single interactive statement" and a
+ * `NameError` means the firmware was built without `compile()` (e.g. ESP8266,
+ * SAMD21). Both fall back to a plain `exec`. Running the code outside the `try`
+ * keeps errors raised by the user's code from triggering a second execution.
+ *
+ * @param expression The code typed by the user.
+ * @returns The MicroPython source to send to the board.
+ */
+export function buildReplEvalCommand(expression: string): string {
+  return (
     `_pe_s = """${escapeForReplEval(expression)}"""\n` +
     "try:\n" +
-    ' exec(compile(_pe_s, "<string>", "single"))\n' +
-    "except SyntaxError:\n" +
-    " exec(_pe_s)";
-
-  return executeCommandInteractive(port, command, emitter, receiver);
+    ' _pe_c = compile(_pe_s, "<string>", "single")\n' +
+    "except (SyntaxError, NameError):\n" +
+    " _pe_c = _pe_s\n" +
+    "exec(_pe_c)"
+  );
 }
 
 /**
@@ -1675,7 +1699,9 @@ export async function interactiveCtrlD(
 
   try {
     emitter.on(PicoSerialEvents.relayInput, onRelayInput);
-    emitter.once(PicoSerialEvents.interrupt, onInterrupt);
+    // `on`, not `once`: a program may swallow the first Ctrl-C, and with no
+    // idle timeout a second stop must still be able to end the run
+    emitter.on(PicoSerialEvents.interrupt, onInterrupt);
     await exitRawRepl(port);
 
     // Buffer.concat([BUFFER_CR, BUFFER_04])

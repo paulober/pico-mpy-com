@@ -1,7 +1,11 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import type { SerialPort } from "serialport";
-import { readUntil, escapeForReplEval } from "./serialHelper.js";
+import {
+  readUntil,
+  escapeForReplEval,
+  buildReplEvalCommand,
+} from "./serialHelper.js";
 
 /**
  * Minimal pull-based fake of the parts of SerialPort that readUntil touches:
@@ -16,6 +20,12 @@ class FakePort {
   }
 
   closed = false;
+
+  // SerialPort keeps `closed`/`destroyed` false after a close; only `isOpen`
+  // reflects it, so readUntil must rely on this getter.
+  get isOpen(): boolean {
+    return !this.closed;
+  }
 
   get readable(): boolean {
     return !this.closed;
@@ -59,6 +69,30 @@ describe("escapeForReplEval", () => {
 
   test("leaves plain code untouched", () => {
     assert.equal(escapeForReplEval("x = 1 + 2"), "x = 1 + 2");
+  });
+});
+
+describe("buildReplEvalCommand", () => {
+  const lines = buildReplEvalCommand("import uos; uos.listdir()").split("\n");
+
+  test("falls back to exec when compile() is missing (NameError)", () => {
+    assert.ok(lines.includes("except (SyntaxError, NameError):"));
+  });
+
+  test("runs the user code outside the try, so never twice", () => {
+    assert.equal(lines.at(-1), "exec(_pe_c)");
+    const tryBody = lines.slice(
+      lines.indexOf("try:") + 1,
+      lines.indexOf("except (SyntaxError, NameError):")
+    );
+    assert.deepEqual(tryBody, [
+      ' _pe_c = compile(_pe_s, "<string>", "single")',
+    ]);
+  });
+
+  test("escapes the embedded expression (issue #282)", () => {
+    const [first] = buildReplEvalCommand("b'\\xAA'").split("\n");
+    assert.equal(first, `_pe_s = """b'\\\\xAA'"""`);
   });
 });
 
