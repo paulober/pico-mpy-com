@@ -64,6 +64,23 @@ await serialCom.closeSerialPort();
 
 ## Docs (TODO)
 
+## Testing
+
+```bash
+npm test                 # unit tests
+npm run test:integration # integration tests against a MicroPython simulator
+npm run test:all         # both
+```
+
+Integration tests need the MicroPython Unix port (`micropython`) and `socat` on the `PATH`. The build must support the raw REPL: Homebrew's works, Ubuntu's apt package does not (CI builds it from source).
+
+To run them against a real board instead:
+
+```bash
+MICROPICO_TEST_PORT=/dev/ttyACM0 MICROPICO_TEST_ALLOW_WIPE=1 npm run test:integration
+```
+
+> Warning: this deletes all files on the board. Tests that need real hardware (soft reset, interrupts, reconnect) are skipped on the simulator.
 
 ## License
 

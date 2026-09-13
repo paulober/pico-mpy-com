@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PicoMpyCom } from "../picoMpyCom.js";
 import { OperationResultType } from "../operationResult.js";
+import { PicoSerialEvents } from "../picoSerialEvents.js";
 import type {
   OpResultListContents,
   OpResultGetItemStat,
@@ -30,12 +31,49 @@ const hardwareOnly = ON_SIMULATOR
   ? { skip: "hardware only (not reproducible on the Unix-port simulator)" }
   : {};
 
+/** Why the suite must not run, or false when it may. */
+function suiteSkipReason(): string | false {
+  if (!integrationBoardAvailable()) {
+    return "no board and no simulator (install micropython + socat)";
+  }
+  // Every test starts by wiping the board root, which on a real board deletes
+  // the user's files — so hardware runs have to opt in explicitly.
+  if (!ON_SIMULATOR && process.env.MICROPICO_TEST_ALLOW_WIPE !== "1") {
+    return "wipes the board: set MICROPICO_TEST_ALLOW_WIPE=1 to run it";
+  }
+
+  return false;
+}
+
+/** Rejects with `what` if `promise` does not settle within `ms`. */
+async function withTimeout<T>(
+  promise: Promise<T>,
+  ms: number,
+  what: string
+): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error(`${what} (after ${ms}ms)`)),
+          ms
+        );
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+const sleep = (ms: number): Promise<void> =>
+  new Promise(resolve => setTimeout(resolve, ms));
+
 describe(
   "integration: core board operations",
   {
-    skip: integrationBoardAvailable()
-      ? false
-      : "no board and no simulator (install micropython + socat)",
+    skip: suiteSkipReason(),
   },
   () => {
     let board: TestBoard;
@@ -50,8 +88,23 @@ describe(
       board = await getTestBoard();
       root = board.root;
       await com.openSerialPort(board.port);
-      await new Promise(resolve => setTimeout(resolve, 2500));
+      await waitUntilReady();
     });
+
+    /**
+     * Waits for the port to open, then runs a first command. Operations queue
+     * until the raw-REPL handshake is done, so that command doubles as the
+     * readiness check. Bounded, so a broken backend fails instead of hanging.
+     */
+    async function waitUntilReady(): Promise<void> {
+      const deadline = Date.now() + 15000;
+      while (com.isPortDisconnected()) {
+        assert.ok(Date.now() < deadline, "port did not open");
+        await sleep(50);
+      }
+      const ready = evalOut("1 + 1");
+      assert.match(await withTimeout(ready, 15000, "board not ready"), /2/);
+    }
 
     after(async () => {
       await com.closeSerialPort();
@@ -298,12 +351,110 @@ describe(
       }
     });
 
+    // ---- REPL robustness ------------------------------------------------
+
+    test("falls back to exec when the firmware lacks compile()", async () => {
+      // mimic a MICROPY_PY_BUILTINS_COMPILE=0 build (e.g. ESP8266, SAMD21)
+      await evalOut(
+        "def compile(*a):\n raise NameError(\"name 'compile' isn't defined\")"
+      );
+      try {
+        assert.equal((await evalOut("print(40 + 2)")).trim(), "42");
+      } finally {
+        await evalOut("del compile");
+      }
+    });
+
+    test("a SyntaxError raised at runtime runs the line once", async () => {
+      await evalOut("_n = 0");
+      await evalOut('_n += 1; exec("x y")');
+      assert.equal((await evalOut("_n")).trim(), "1");
+    });
+
     // ---- hardware-only --------------------------------------------------
 
     test("soft reset leaves the board responsive", hardwareOnly, async () => {
       const res = await com.softReset();
       assert.notEqual(res.type, OperationResultType.none);
       assert.match(await evalOut("1 + 1"), /2/);
+    });
+
+    // Ctrl-C reaches the Unix port as a plain byte (the PTY is raw, no SIGINT),
+    // so interrupt handling is only observable on a real board.
+    const swallowedStop = "a second stop ends a program ignoring the first";
+    test(swallowedStop, hardwareOnly, async () => {
+      // Counts one stop per burst (each stop sends two Ctrl-C) and ends on its
+      // own after 8s. The try also covers the loop condition so a trailing
+      // Ctrl-C cannot slip past it.
+      const program = [
+        "import time",
+        "_k = 0; _l = 0; _t = time.ticks_ms()",
+        "while True:",
+        "    try:",
+        "        if _k >= 2 or time.ticks_diff(time.ticks_ms(), _t) > 8000:",
+        "            break",
+        "        time.sleep_ms(20)",
+        "    except KeyboardInterrupt:",
+        "        if time.ticks_diff(time.ticks_ms(), _l) > 500:",
+        "            _k += 1; _l = time.ticks_ms()",
+      ].join("\n");
+
+      const started = Date.now();
+      const run = evalOut(program);
+      await sleep(1000);
+      com.interruptExecution();
+      await sleep(1000);
+      com.interruptExecution();
+      await run;
+
+      // ending well before the 8s cap proves the second stop was honoured;
+      // not before the second stop proves the first one was swallowed
+      const elapsed = Date.now() - started;
+      assert.ok(elapsed > 1500, `ended after the first stop (${elapsed}ms)`);
+      assert.ok(elapsed < 5000, `second stop was ignored (${elapsed}ms)`);
+    });
+
+    const failedHandshake = "releases the port when the handshake fails";
+    test(failedHandshake, hardwareOnly, async () => {
+      // a program that ignores Ctrl-C keeps the board out of the raw REPL
+      const stubborn = [
+        "import time",
+        "_t = time.ticks_ms()",
+        "while time.ticks_diff(time.ticks_ms(), _t) < 20000:",
+        "    try:",
+        "        time.sleep_ms(20)",
+        "    except KeyboardInterrupt:",
+        "        pass",
+      ].join("\n");
+      const started = Date.now();
+      void evalOut(stubborn);
+      await sleep(1000);
+      await com.closeSerialPort(true);
+
+      let portError = false;
+      const onError = (): void => {
+        portError = true;
+      };
+      com.on(PicoSerialEvents.portError, onError);
+      try {
+        await com.openSerialPort(board.port);
+        // the handshake gives up after ~10s; previously the port stayed locked
+        for (let i = 0; i < 150 && !portError; i++) {
+          await sleep(100);
+        }
+        assert.ok(portError, "no portError after the failed handshake");
+        for (let i = 0; i < 30 && !com.isPortDisconnected(); i++) {
+          await sleep(100);
+        }
+        assert.ok(com.isPortDisconnected(), "port still held");
+      } finally {
+        com.off(PicoSerialEvents.portError, onError);
+      }
+
+      // once the program has ended the board must be usable again
+      await sleep(Math.max(0, 21000 - (Date.now() - started)));
+      await com.openSerialPort(board.port);
+      await waitUntilReady();
     });
   }
 );
