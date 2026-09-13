@@ -16,4 +16,8 @@ export enum PicoSerialEvents {
   relayInput = "relayInput",
   // triggered if relaying input fails
   relayInputError = "relayInputError",
+
+  // Output the board sends while no operation is reading it, e.g. from a
+  // timer callback of a program that is still running. Payload: Buffer.
+  backgroundOutput = "backgroundOutput",
 }

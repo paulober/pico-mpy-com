@@ -38,6 +38,10 @@ export class PicoMpyCom extends EventEmitter {
   // flag to indicate if main.py exists on the board
   // so the follow op can account for it
   private mainPyExists = false;
+  // forwarding output while no operation reads the port
+  private backgroundReading = false;
+  // the raw REPL prompt left behind by the last operation isn't program output
+  private promptPending = false;
 
   private constructor() {
     // TODO: maybe set option to auto capture rejections
@@ -235,6 +239,7 @@ export class PicoMpyCom extends EventEmitter {
    */
   public async closeSerialPort(force = false): Promise<void> {
     if (this.serialPort) {
+      this.stopBackgroundReader();
       if (!this.isPortDisconnected()) {
         if (!force) {
           this.serialPortClosing = true;
@@ -398,14 +403,85 @@ export class PicoMpyCom extends EventEmitter {
     const operation = this.queue.dequeue();
     if (operation === undefined) {
       this.operationInProgress = false;
+      this.startBackgroundReader();
 
       return;
     }
+
+    // the operation reads the port itself from here on
+    this.stopBackgroundReader();
 
     // acquire the lock
     this.operationInProgress = true;
 
     this.emit(PicoSerialEvents.startOperation, operation);
+  }
+
+  private readonly onBackgroundReadable = (): void => {
+    this.drainBackgroundOutput();
+  };
+
+  /**
+   * Starts forwarding everything the board sends while the queue is idle as
+   * {@link PicoSerialEvents.backgroundOutput}. Without this, output of a
+   * program that keeps running (timers, interrupts, threads) piles up in the
+   * port buffer and breaks the next operation.
+   */
+  private startBackgroundReader(): void {
+    if (
+      !this.serialPort ||
+      this.backgroundReading ||
+      this.operationInProgress ||
+      this.resetInProgress ||
+      this.serialPortClosing
+    ) {
+      return;
+    }
+
+    this.backgroundReading = true;
+    this.promptPending = true;
+    this.serialPort.on("readable", this.onBackgroundReadable);
+    this.drainBackgroundOutput();
+  }
+
+  private stopBackgroundReader(): void {
+    if (!this.backgroundReading) {
+      return;
+    }
+
+    this.serialPort?.off("readable", this.onBackgroundReadable);
+    this.drainBackgroundOutput();
+    this.backgroundReading = false;
+  }
+
+  private drainBackgroundOutput(): void {
+    const port = this.serialPort;
+    if (!port) {
+      return;
+    }
+
+    const chunks: Buffer[] = [];
+    let chunk = port.read() as Buffer | string | null;
+    while (chunk !== null) {
+      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+      chunk = port.read() as Buffer | string | null;
+    }
+
+    let data = Buffer.concat(chunks);
+    if (data.length === 0) {
+      return;
+    }
+
+    if (this.promptPending) {
+      this.promptPending = false;
+      if (data[0] === 0x3e) {
+        data = data.subarray(1);
+      }
+    }
+
+    if (data.length > 0) {
+      this.emit(PicoSerialEvents.backgroundOutput, data);
+    }
   }
 
   /**

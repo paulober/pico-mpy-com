@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import type { SerialPort } from "serialport";
 import {
   readUntil,
+  readUntilAny,
   escapeForReplEval,
   buildReplEvalCommand,
 } from "./serialHelper.js";
@@ -69,6 +70,59 @@ describe("escapeForReplEval", () => {
 
   test("leaves plain code untouched", () => {
     assert.equal(escapeForReplEval("x = 1 + 2"), "x = 1 + 2");
+  });
+});
+
+/** A port that never stops producing output, like a program printing. */
+class ChattyPort {
+  isOpen = true;
+  readable = true;
+  readableLength = 1;
+  private readonly text = Buffer.from("tick\r\n");
+  private offset = 0;
+
+  read(): Buffer {
+    const byte = this.text.subarray(this.offset, this.offset + 1);
+    this.offset = (this.offset + 1) % this.text.length;
+
+    return byte;
+  }
+}
+
+describe("readUntilAny", () => {
+  test("finds a marker behind unrelated output", async () => {
+    const port = fakePort(Buffer.from("tick\r\ntick\r\nR\x01"));
+    const result = await readUntilAny(
+      port,
+      [Buffer.from("R\x01"), Buffer.from("R\x00")],
+      1000
+    );
+
+    assert.equal(result.matched, 0);
+    assert.equal(result.before.toString(), "tick\r\ntick\r\n");
+  });
+
+  test("reports which marker matched", async () => {
+    const port = fakePort(Buffer.from(">R\x00"));
+    const result = await readUntilAny(
+      port,
+      [Buffer.from("R\x01"), Buffer.from("R\x00")],
+      1000
+    );
+
+    assert.equal(result.matched, 1);
+  });
+
+  test("gives up at the deadline even while data keeps arriving", async () => {
+    const started = Date.now();
+    const result = await readUntilAny(
+      new ChattyPort() as unknown as SerialPort,
+      [Buffer.from("R\x01")],
+      100
+    );
+
+    assert.equal(result.matched, undefined);
+    assert.ok(Date.now() - started < 1000, "idle output reset the deadline");
   });
 });
 

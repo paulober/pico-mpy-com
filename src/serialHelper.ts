@@ -32,6 +32,8 @@ let useRawPasteMode = true;
 const BUFFER_RAW_PASTE_STATUS = Buffer.from("\x05A\x01");
 const BUFFER_R00 = Buffer.from("R\x00");
 const BUFFER_R01 = Buffer.from("R\x01");
+const BUFFER_RAW_REPL_PROMPT = Buffer.from("w REPL; CTRL-B to exit\r\n>");
+const BUFFER_OK = Buffer.from("OK");
 const BUFFER_01 = Buffer.from("\x01");
 const BUFFER_03 = Buffer.from("\x03");
 const BUFFER_04 = Buffer.from("\x04");
@@ -173,6 +175,66 @@ export async function readUntil(
   }
 
   return receiver ? buffer.subarray(-1) : buffer;
+}
+
+/**
+ * Reads until the data ends with one of the given byte sequences or a fixed
+ * deadline passes.
+ *
+ * Unlike {@link readUntil}, the timeout is not reset by incoming data, so a
+ * program that keeps printing in the background can't stall a protocol step.
+ *
+ * @param port The serial port to read from.
+ * @param suffixes The byte sequences to wait for.
+ * @param timeoutMs Deadline in milliseconds.
+ * @returns The index of the matched suffix (undefined on timeout) and the
+ * bytes received before it.
+ */
+export async function readUntilAny(
+  port: SerialPort,
+  suffixes: Buffer[],
+  timeoutMs: number
+): Promise<{ matched?: number; before: Buffer }> {
+  const deadline = Date.now() + timeoutMs;
+  let buffer = Buffer.alloc(0);
+
+  while (Date.now() < deadline && port.isOpen) {
+    if (port.readable && port.readableLength > 0) {
+      buffer = Buffer.concat([
+        buffer,
+        ensureBuffer(port.read(1) as Buffer | string | null),
+      ]);
+      const matched = suffixes.findIndex(
+        suffix =>
+          buffer.length >= suffix.length &&
+          buffer.subarray(-suffix.length).equals(suffix)
+      );
+      if (matched !== -1) {
+        return {
+          matched,
+          before: buffer.subarray(0, buffer.length - suffixes[matched].length),
+        };
+      }
+    } else {
+      await new Promise(resolve => setTimeout(resolve, 10));
+    }
+  }
+
+  return { before: buffer };
+}
+
+/**
+ * Passes bytes that arrived around a protocol response on as background
+ * output. Leading `>` are the raw REPL prompt, not program output.
+ */
+function emitStrayOutput(emitter: EventEmitter | undefined, data: Buffer): void {
+  let start = 0;
+  while (start < data.length && data[start] === 0x3e) {
+    start++;
+  }
+  if (start < data.length) {
+    emitter?.emit(PicoSerialEvents.backgroundOutput, data.subarray(start));
+  }
 }
 
 /**
@@ -379,7 +441,11 @@ async function readOrTimeout(
  * @param command The command to execute.
  * @throws Error if the write operation fails or a read operation times out.
  */
-async function rawPasteWrite(port: SerialPort, command: Buffer): Promise<void> {
+async function rawPasteWrite(
+  port: SerialPort,
+  command: Buffer,
+  emitter?: EventEmitter
+): Promise<void> {
   const data = await readOrTimeout(port, 2);
   if (data === null) {
     throw new Error("Error executing command");
@@ -413,6 +479,9 @@ async function rawPasteWrite(port: SerialPort, command: Buffer): Promise<void> {
         port.write(BUFFER_04);
 
         return;
+      } else if (data !== null) {
+        // printed by a program still running on the board, not flow control
+        emitStrayOutput(emitter, data);
       } else {
         throw new Error("Unexpected read during raw paste");
       }
@@ -445,7 +514,8 @@ async function rawPasteWrite(port: SerialPort, command: Buffer): Promise<void> {
  */
 export async function executeCommandWithoutResult(
   port: SerialPort,
-  command: string
+  command: string,
+  emitter?: EventEmitter
 ): Promise<void> {
   const errCb = (err: Error | null | undefined): void => {
     if (err) {
@@ -453,35 +523,32 @@ export async function executeCommandWithoutResult(
     }
   };
 
-  // check for prompt
-  const data = (await readUntil(port, 1, ">"))?.toString("utf-8") ?? "";
-  if (!data.endsWith(">")) {
-    throw new Error("Error executing command");
-  }
+  // The raw REPL prompt (">") of the previous command is not awaited: the
+  // background reader may already have consumed it. A program still running
+  // on the board can also print at any time, so protocol responses are
+  // searched for with a fixed deadline instead of expected as the next bytes.
 
   if (useRawPasteMode) {
     // try to enter raw paste mode
     port.write(BUFFER_RAW_PASTE_STATUS, errCb);
-    const data = await readUntil(port, 2, BUFFER_R01, 3);
-    if (data?.equals(BUFFER_R00)) {
-      // device understood raw-paste command but doesn't support it
-      // because it understood we don't have to manually reenter raw repl
-      //console.debug("Device doesn't support raw paste command");
-    } else if (data?.equals(BUFFER_R01)) {
-      //console.debug("Device supports raw paste command");
+    const { matched, before } = await readUntilAny(
+      port,
+      [BUFFER_R01, BUFFER_R00, BUFFER_RAW_REPL_PROMPT],
+      3000
+    );
+    emitStrayOutput(emitter, before);
+
+    if (matched === 0) {
       // device understood raw-paste command and supports it
-      await rawPasteWrite(port, Buffer.from(command, "utf-8"));
+      await rawPasteWrite(port, Buffer.from(command, "utf-8"), emitter);
 
       return;
-    } else {
-      //console.debug("Device doesn't understand raw paste command");
-      // device doesn't support raw-paste command fallback to normal raw REPL
-      const data = await readUntil(port, 1, "w REPL; CTRL-B to exit\r\n>");
-      if (!data?.toString("utf-8").endsWith("w REPL; CTRL-B to exit\r\n>")) {
-        throw new Error("Error executing command");
-      }
+    } else if (matched === undefined) {
+      throw new Error("Error executing command");
     }
 
+    // R\x00: understood but not supported; banner: raw paste unknown.
+    // Either way the device is still in raw REPL, so write normally.
     useRawPasteMode = false;
   }
 
@@ -493,9 +560,9 @@ export async function executeCommandWithoutResult(
   // CTRL-D to finish
   port.write("\x04", errCb);
 
-  // TODO: maybe different timeout
-  const data2 = (await readUntil(port, 1, "OK", 5))?.toString("utf-8") ?? "";
-  if (!data2.endsWith("OK")) {
+  const { matched, before } = await readUntilAny(port, [BUFFER_OK], 5000);
+  emitStrayOutput(emitter, before);
+  if (matched === undefined) {
     throw new Error("Error executing command");
   }
 }
@@ -546,7 +613,7 @@ export async function executeCommandWithResult(
     }
 
     // call exe without result and then call follow
-    await executeCommandWithoutResult(port, command.trim());
+    await executeCommandWithoutResult(port, command.trim(), emitter);
 
     // needs to be awaited here, otherwise it will
     // return the promisse which will run the final block

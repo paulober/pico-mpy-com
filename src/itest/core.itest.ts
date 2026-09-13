@@ -30,6 +30,9 @@ const ON_SIMULATOR = process.env.MICROPICO_TEST_PORT === undefined;
 const hardwareOnly = ON_SIMULATOR
   ? { skip: "hardware only (not reproducible on the Unix-port simulator)" }
   : {};
+const simulatorOnly = ON_SIMULATOR
+  ? {}
+  : { skip: "simulator only (covered by a hardware test)" };
 
 /** Why the suite must not run, or false when it may. */
 function suiteSkipReason(): string | false {
@@ -371,7 +374,80 @@ describe(
       assert.equal((await evalOut("_n")).trim(), "1");
     });
 
+    // ---- programs running in the background ------------------------------
+
+    /** Collects backgroundOutput events until disposed. */
+    function collectBackground(): { text(): string; dispose(): void } {
+      const chunks: Buffer[] = [];
+      const onData = (data: Buffer): void => {
+        chunks.push(data);
+      };
+      com.on(PicoSerialEvents.backgroundOutput, onData);
+
+      return {
+        text: () => Buffer.concat(chunks).toString("utf8"),
+        dispose: () => com.off(PicoSerialEvents.backgroundOutput, onData),
+      };
+    }
+
+    const threadPrinter = "keeps working while a thread prints in background";
+    test(threadPrinter, simulatorOnly, async () => {
+      const background = collectBackground();
+      try {
+        await evalOut(
+          "import _thread, time\n" +
+            "_bg = True\n" +
+            "def _loop():\n" +
+            "    while _bg:\n" +
+            "        print('tick')\n" +
+            "        time.sleep(0.05)\n" +
+            "_thread.start_new_thread(_loop, ())"
+        );
+        await sleep(500);
+
+        // this used to hang: stale output broke the raw paste handshake
+        const out = await withTimeout(evalOut("40 + 2"), 10000, "command hung");
+        assert.match(out, /42/);
+
+        await sleep(300);
+        assert.match(background.text(), /tick/, "output was not forwarded");
+      } finally {
+        await evalOut("_bg = False");
+        await sleep(200);
+        background.dispose();
+      }
+    });
+
     // ---- hardware-only --------------------------------------------------
+
+    const timerSurvives = "a timer keeps printing after its script ended";
+    test(timerSurvives, hardwareOnly, async () => {
+      const background = collectBackground();
+      try {
+        await evalOut(
+          "from machine import Timer\n" +
+            "_t = Timer()\n" +
+            "_t.init(freq=10, mode=Timer.PERIODIC, " +
+            "callback=lambda t: print('tick'))"
+        );
+        await sleep(1000);
+        assert.match(background.text(), /tick/, "timer output not forwarded");
+
+        const out = await withTimeout(evalOut("40 + 2"), 10000, "command hung");
+        assert.match(out, /42/);
+        // output may interleave with the listing, but it must not hang
+        await withTimeout(com.listContents("/"), 10000, "listing hung");
+      } finally {
+        await com.softReset();
+        background.dispose();
+      }
+
+      // the soft reset stops the timer
+      const after = collectBackground();
+      await sleep(800);
+      after.dispose();
+      assert.doesNotMatch(after.text(), /tick/);
+    });
 
     test("soft reset leaves the board responsive", hardwareOnly, async () => {
       const res = await com.softReset();
