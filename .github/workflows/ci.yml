@@ -62,8 +62,8 @@ jobs:
       # The Ubuntu apt `micropython` is linked against GNU readline, which binds
       # Ctrl-A to "beginning-of-line" and swallows it — so it never reaches the
       # interpreter's raw-REPL entry, which the library requires. Build the Unix
-      # port from source instead: its default build uses the internal readline
-      # and therefore supports the raw REPL.
+      # port from source instead, and no older than v1.27: only since then does
+      # the Unix port use the shared pyexec REPL that implements the raw REPL.
       - name: Install build tools + socat
         run: |
           sudo apt-get update
@@ -75,12 +75,12 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ runner.temp }}/mpy-bin
-          key: micropython-unix-v1.25.0
+          key: micropython-unix-v1.29.0
 
       - name: Build MicroPython Unix port (raw-REPL capable)
         if: steps.mpy-cache.outputs.cache-hit != 'true'
         run: |
-          git clone --depth 1 --branch v1.25.0 \
+          git clone --depth 1 --branch v1.29.0 \
             https://github.com/micropython/micropython.git "$RUNNER_TEMP/micropython"
           make -C "$RUNNER_TEMP/micropython/mpy-cross" -j"$(nproc)"
           make -C "$RUNNER_TEMP/micropython/ports/unix" submodules
