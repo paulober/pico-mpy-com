@@ -10,7 +10,12 @@ import {
 } from "./operationResult.js";
 import { executeAnyCommand } from "./commandExec.js";
 import type { ProgressCallback } from "./progressCallback.js";
-import { isUsbDeviceSupported, type VidPidPair } from "./usbIds.js";
+import {
+  isUsbDeviceSupported,
+  toSerialPortDetails,
+  type SerialPortDetails,
+  type VidPidPair,
+} from "./usbIds.js";
 
 const BUFFER_CR = Buffer.from("\r");
 
@@ -86,6 +91,19 @@ export class PicoMpyCom extends EventEmitter {
     const ports = await SerialPort.list();
 
     return ports.map(port => port.path);
+  }
+
+  /**
+   * Returns all available serial ports with their USB details, so a user can
+   * tell them apart. Ports of supported boards are marked as `supported`.
+   * @param customVidPidPairs Optional array of custom VID/PID pairs to also consider as supported.
+   */
+  public static async getSerialPortDetails(
+    customVidPidPairs?: VidPidPair[]
+  ): Promise<SerialPortDetails[]> {
+    const ports = await SerialPort.list();
+
+    return ports.map(port => toSerialPortDetails(port, customVidPidPairs));
   }
 
   /**

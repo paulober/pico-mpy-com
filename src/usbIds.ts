@@ -34,3 +34,34 @@ export function isUsbDeviceSupported(
 
   return false;
 }
+
+export interface SerialPortDetails {
+  path: string;
+  /** Manufacturer as reported by the OS, often missing or generic. */
+  manufacturer?: string;
+  serialNumber?: string;
+  vendorId?: number;
+  productId?: number;
+  /** Whether the USB IDs belong to a supported (or custom) board. */
+  supported: boolean;
+}
+
+function parseUsbId(id: string | undefined): number | undefined {
+  const value = Number(`0x${id}`);
+
+  return id === undefined || Number.isNaN(value) ? undefined : value;
+}
+
+export function toSerialPortDetails(
+  port: PortInfo,
+  customVidPidPairs?: VidPidPair[]
+): SerialPortDetails {
+  return {
+    path: port.path,
+    manufacturer: port.manufacturer,
+    serialNumber: port.serialNumber,
+    vendorId: parseUsbId(port.vendorId),
+    productId: parseUsbId(port.productId),
+    supported: isUsbDeviceSupported(port, customVidPidPairs),
+  };
+}
