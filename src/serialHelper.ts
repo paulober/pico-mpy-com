@@ -324,6 +324,35 @@ export async function enterRawRepl(
 }
 
 /**
+ * Applies the port speed again. On macOS, another program merely trying to
+ * open the same port resets it, even though the open fails on the lock, so
+ * everything sent and received afterwards is garbled.
+ *
+ * @param port The serial port to fix.
+ */
+export async function reapplyPortSettings(port: SerialPort): Promise<void> {
+  if (!port.isOpen) {
+    return;
+  }
+
+  await new Promise<void>(resolve => {
+    port.update({ baudRate: port.baudRate }, () => resolve());
+  });
+}
+
+/**
+ * Brings the board back into a known raw REPL state after a transfer broke
+ * off, e.g. because the port was disturbed while a command was sent.
+ *
+ * @param port The serial port to the board.
+ */
+export async function resyncRawRepl(port: SerialPort): Promise<void> {
+  await reapplyPortSettings(port);
+  // Ctrl-C also ends a half received raw paste on the board
+  await enterRawRepl(port);
+}
+
+/**
  * Exits the raw REPL mode on the connected board.
  *
  * @param port The serial port to write to.
@@ -612,8 +641,19 @@ export async function executeCommandWithResult(
       emitter.on(PicoSerialEvents.interrupt, onInterrupt);
     }
 
+    // Output a program prints while the command is sent is only passed on
+    // once the transfer worked. When it breaks off, these bytes are usually
+    // just the garbled protocol and not output worth showing.
+    const stray: Buffer[] = [];
+    const collector = {
+      emit: (_event: string, data: Buffer): boolean => stray.push(data) > 0,
+    } as unknown as EventEmitter;
+
     // call exe without result and then call follow
-    await executeCommandWithoutResult(port, command.trim(), emitter);
+    await executeCommandWithoutResult(port, command.trim(), collector);
+    for (const data of stray) {
+      emitter.emit(PicoSerialEvents.backgroundOutput, data);
+    }
 
     // needs to be awaited here, otherwise it will
     // return the promisse which will run the final block
@@ -622,9 +662,12 @@ export async function executeCommandWithResult(
   } catch {
     if (interrupted) {
       return { data: "", error: "Interrupted" };
-    } else {
-      return { data: "", error: "Error executing command" };
     }
+
+    // otherwise the next commands would fail the same way
+    await resyncRawRepl(port).catch(() => undefined);
+
+    return { data: "", error: "Error executing command" };
   } finally {
     if (!atomic) {
       emitter.off(PicoSerialEvents.interrupt, onInterrupt);

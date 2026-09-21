@@ -2,7 +2,12 @@ import { EventEmitter } from "events";
 import { SerialPort } from "serialport";
 import { PicoSerialEvents } from "./picoSerialEvents.js";
 import { Queue } from "./queue.js";
-import { enterRawRepl, readUntil, stopRunningStuff } from "./serialHelper.js";
+import {
+  enterRawRepl,
+  readUntil,
+  reapplyPortSettings,
+  stopRunningStuff,
+} from "./serialHelper.js";
 import { CommandType, type Command } from "./command.js";
 import {
   type OperationResult,
@@ -335,6 +340,9 @@ export class PicoMpyCom extends EventEmitter {
 
             return;
           }
+
+          // undo a reset of the port settings since the last operation
+          await reapplyPortSettings(this.serialPort);
 
           // set this flag for operations that close the port
           if (command.type === CommandType.hardReset) {
