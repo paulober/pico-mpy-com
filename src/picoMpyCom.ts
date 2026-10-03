@@ -134,6 +134,18 @@ export class PicoMpyCom extends EventEmitter {
     // TODO: make sure after disconnect these don't exist multiple times if a
     // new connection is established
 
+    // Windows turns on DTR but not RTS when opening a port. ESP32 boards with a
+    // USB-to-serial chip read that as "boot into download mode" on their next
+    // reset (MicroPico#360). Turn both on, like macOS and Linux do. Also on
+    // every reopen after a reset, which sets the lines again.
+    this.serialPort.on("open", () => {
+      this.serialPort?.set({ dtr: true, rts: true }, error => {
+        if (error) {
+          console.error("[pico-mpy-com] failed to set DTR/RTS:", error);
+        }
+      });
+    });
+
     // instead of returning the result we trigger an event if the ports opens successfully
     this.serialPort.on("open", this.onPortOpened.bind(this));
 
