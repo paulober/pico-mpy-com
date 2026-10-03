@@ -129,6 +129,7 @@ export class PicoMpyCom extends EventEmitter {
       baudRate: 115200,
       autoOpen: true,
       lock: true,
+      hupcl: false,
     });
 
     // TODO: make sure after disconnect these don't exist multiple times if a
