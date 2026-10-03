@@ -2,12 +2,7 @@ import { EventEmitter } from "events";
 import { SerialPort } from "serialport";
 import { PicoSerialEvents } from "./picoSerialEvents.js";
 import { Queue } from "./queue.js";
-import {
-  enterRawRepl,
-  readUntil,
-  reapplyPortSettings,
-  stopRunningStuff,
-} from "./serialHelper.js";
+import { enterRawRepl, reapplyPortSettings } from "./serialHelper.js";
 import { CommandType, type Command } from "./command.js";
 import {
   type OperationResult,
@@ -21,8 +16,6 @@ import {
   type SerialPortDetails,
   type VidPidPair,
 } from "./usbIds.js";
-
-const BUFFER_CR = Buffer.from("\r");
 
 /**
  * Singleton class for handling serial communication with a MicroPython device.
@@ -38,16 +31,10 @@ export class PicoMpyCom extends EventEmitter {
   private operationInProgress = true;
   private queue = new Queue<number>();
   private queueIdCounter = 0;
+  // a hard reset may close and reopen the port, that's no disconnect
   private resetInProgress = false;
   /// if set to true, no new operation will be executed only the already enqueued ones
   private serialPortClosing = false;
-  private followReset?: (data: Buffer) => void;
-  private resetResolve?: (
-    value: OperationResult | PromiseLike<OperationResult>
-  ) => void;
-  // flag to indicate if main.py exists on the board
-  // so the follow op can account for it
-  private mainPyExists = false;
   // forwarding output while no operation reads the port
   private backgroundReading = false;
   // the raw REPL prompt left behind by the last operation isn't program output
@@ -154,95 +141,11 @@ export class PicoMpyCom extends EventEmitter {
     });
 
     this.serialPort.on("close", () => {
-      // TODO: move out of PicoMpyCom and into a separate file as it's hardware specific
-      if (this.resetInProgress) {
-        const onRelayInput = (data: Buffer): void => {
-          if (data.length > 0) {
-            this.serialPort?.write(Buffer.concat([data, BUFFER_CR]), err => {
-              if (err) {
-                this.emit(PicoSerialEvents.relayInputError, err);
-              }
-            });
-          }
-        };
-        const onReadable = (): void => {
-          if (!this.serialPort) {
-            return;
-          }
-          const onInter = (): void => {
-            if (this.serialPort) {
-              stopRunningStuff(this.serialPort);
-            }
-          };
-          // `on`, not `once`: a program may swallow the first Ctrl-C
-          this.on(PicoSerialEvents.interrupt, onInter);
-          readUntil(
-            this.serialPort,
-            2,
-            this.mainPyExists ? "\n>>> " : ">OK",
-            null,
-            this.followReset
-          )
-            .catch((error: unknown) => {
-              console.error(
-                "[pico-mpy-com] read after reset/reconnect failed:",
-                error
-              );
-            })
-            .finally(() => {
-              this.serialPort?.write(BUFFER_CR);
-              this.resetInProgress = false;
-              this.followReset = undefined;
-              this.off(PicoSerialEvents.relayInput, onRelayInput);
-              this.off(PicoSerialEvents.interrupt, onInter);
-              this.resolveReset();
-              this.onPortOpened();
-              this.executeNextOperation();
-            });
-        };
-
-        let retries = 0;
-
-        const reopening = (): void => {
-          this.serialPort?.open((error?: Error | null) => {
-            if (error) {
-              if (retries++ > 40) {
-                this.resetInProgress = false;
-                this.resolveReset();
-                void this.closeSerialPort();
-
-                return;
-              }
-
-              // wait 100ms and try again
-              setTimeout(reopening, 50);
-            } else {
-              this.serialPort?.once("readable", onReadable);
-              if (this.followReset && this.serialPort) {
-                this.on(PicoSerialEvents.relayInput, onRelayInput);
-              }
-
-              // only disable now as previous it would be to early and open would trigger
-              this.resetInProgress = false;
-            }
-          });
-        };
-        // wait 200ms and reconnect
-        setTimeout(reopening, 400);
-      } else {
+      // the board drops off the bus during a hard reset, which reopens the port
+      if (!this.resetInProgress) {
         this.emit(PicoSerialEvents.portClosed);
       }
     });
-  }
-
-  private resolveReset(): void {
-    if (this.resetResolve) {
-      this.resetResolve({
-        type: OperationResultType.commandResult,
-        result: true,
-      });
-      this.resetResolve = undefined;
-    }
   }
 
   private onPortOpened(): void {
@@ -310,8 +213,6 @@ export class PicoMpyCom extends EventEmitter {
       this.operationInProgress = true;
       this.serialPortClosing = false;
       this.resetInProgress = false;
-      this.followReset = undefined;
-      this.resetResolve = undefined;
     }
   }
 
@@ -356,45 +257,7 @@ export class PicoMpyCom extends EventEmitter {
           // undo a reset of the port settings since the last operation
           await reapplyPortSettings(this.serialPort);
 
-          // set this flag for operations that close the port
-          if (command.type === CommandType.hardReset) {
-            this.resetInProgress = true;
-            this.followReset = receiver;
-            this.resetResolve = resolve;
-
-            // check if main.py is present
-            const result = await executeAnyCommand(
-              this.serialPort,
-              this,
-              {
-                type: CommandType.getItemStat,
-                args: { item: "main.py" },
-              },
-              undefined,
-              pythonInterpreterPath,
-              undefined
-            );
-
-            if (result.type !== OperationResultType.getItemStat) {
-              // reset state
-              this.resetInProgress = false;
-              this.followReset = undefined;
-              this.resetResolve = undefined;
-
-              // continue processing of the queue
-              this.executeNextOperation();
-
-              resolve({
-                type: OperationResultType.commandResult,
-                result: false,
-              });
-
-              return;
-            }
-
-            this.mainPyExists = result.stat !== null && !result.stat.isDir;
-          }
-
+          this.resetInProgress = command.type === CommandType.hardReset;
           readyStateCb?.(true);
 
           // execute the command
@@ -407,18 +270,27 @@ export class PicoMpyCom extends EventEmitter {
             progressCallback
           );
 
-          if (command.type !== CommandType.hardReset) {
-            // continue processing of the queue
-            this.executeNextOperation();
-            // !!! IMPORTANT !!! !!! IMPORTANT !!! !!! IMPORTANT !!!
-            // BELOW THIS LINE NOT ACCESS TO THE SERIAL PORT IS ALLOWED
-            // AND ACCOUNTED FOR BY THE QUEUEING SYSTEM
+          if (this.resetInProgress) {
+            this.resetInProgress = false;
+            // the board didn't come back after the reset
+            if (!this.serialPort?.isOpen) {
+              resolve(result);
+              this.emit(PicoSerialEvents.portClosed);
 
-            // space for enqueueing follow up operations and resolve
-            // after they are done
-
-            resolve(result);
+              return;
+            }
           }
+
+          // continue processing of the queue
+          this.executeNextOperation();
+          // !!! IMPORTANT !!! !!! IMPORTANT !!! !!! IMPORTANT !!!
+          // BELOW THIS LINE NOT ACCESS TO THE SERIAL PORT IS ALLOWED
+          // AND ACCOUNTED FOR BY THE QUEUEING SYSTEM
+
+          // space for enqueueing follow up operations and resolve
+          // after they are done
+
+          resolve(result);
         })(id);
       };
 
@@ -985,7 +857,8 @@ export class PicoMpyCom extends EventEmitter {
    * Interrupts the execution of most kinds of operations if currently in progress.
    */
   public interruptExecution(): void {
-    if (this.isPortDisconnected()) {
+    // during a hard reset the port is down until the board is back
+    if (this.isPortDisconnected() && !this.resetInProgress) {
       return;
     }
 

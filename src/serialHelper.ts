@@ -35,6 +35,7 @@ const BUFFER_R01 = Buffer.from("R\x01");
 const BUFFER_RAW_REPL_PROMPT = Buffer.from("w REPL; CTRL-B to exit\r\n>");
 const BUFFER_OK = Buffer.from("OK");
 const BUFFER_01 = Buffer.from("\x01");
+const BUFFER_02 = Buffer.from("\x02");
 const BUFFER_03 = Buffer.from("\x03");
 const BUFFER_04 = Buffer.from("\x04");
 const BUFFER_CR = Buffer.from("\r");
@@ -1700,11 +1701,121 @@ del __pe_RTC
   return rp2DatetimeToDate(result);
 }
 
-// TODO: needs more work to be able to continue connection and receive output
-export function hardReset(port: SerialPort): void {
-  stopRunningStuff(port);
-  port.write(Buffer.from("\rimport machine\nmachine.reset()", "utf-8"));
+/**
+ * Opens a port again that closed while the board restarted.
+ *
+ * @param port The serial port to reopen.
+ * @param timeoutMs How long the board may take to show up again.
+ * @returns false if the port didn't come back in time.
+ */
+async function reopenAfterReset(
+  port: SerialPort,
+  timeoutMs: number
+): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const opened = await new Promise<boolean>(resolve => {
+      port.open(error => resolve(!error));
+    });
+    if (opened) {
+      return true;
+    }
+    await new Promise(resolve => setTimeout(resolve, 20));
+  }
+
+  return false;
+}
+
+/**
+ * Hard resets the board and follows its output until the REPL prompt shows
+ * up, the user interrupts or the board doesn't come back.
+ *
+ * Boards with a USB-to-serial chip (e.g. ESP32 with a CP2102) keep the port
+ * open during the reset, so the whole boot output arrives. Boards with native
+ * USB (e.g. Pico) drop off the bus; the port is reopened as soon as it's back,
+ * but what the board printed before that is lost.
+ *
+ * The caller must not treat the port closing during the reset as a disconnect.
+ *
+ * @param port The serial port to the board, in raw REPL mode.
+ * @param emitter The event emitter for interrupt and relayInput events.
+ * @param receiver The function to call with the output of the board.
+ * @returns false if the reset failed or the board didn't come back.
+ */
+export async function interactiveHardReset(
+  port: SerialPort,
+  emitter: EventEmitter,
+  receiver?: (data: Buffer) => void
+): Promise<boolean> {
+  const mainPy = await fsStat(port, emitter, "main.py");
+  const mainPyExists = mainPy !== undefined && !mainPy.isDir;
+
+  let interrupted = false;
+  const onInterrupt = (): void => {
+    interrupted = true;
+    // while the port is down, the Ctrl-C is sent once it's back
+    if (port.isOpen) {
+      stopRunningStuff(port, () => undefined);
+    }
+  };
+  const onRelayInput = (data: Buffer): void => {
+    if (!port.isOpen) {
+      return;
+    }
+    port.write(Buffer.concat([data, BUFFER_CR]), err => {
+      if (err) {
+        emitter.emit(PicoSerialEvents.relayInputError, err);
+      }
+    });
+  };
+
+  // the raw REPL answers OK before it runs the code
+  port.write("import machine\nmachine.reset()");
   port.write(BUFFER_04);
+  const ack = await readUntil(port, 2, BUFFER_OK, 2);
+  if (!ack?.subarray(-2).equals(BUFFER_OK)) {
+    return false;
+  }
+
+  let success = false;
+  try {
+    emitter.on(PicoSerialEvents.interrupt, onInterrupt);
+    emitter.on(PicoSerialEvents.relayInput, onRelayInput);
+
+    const follow = receiver ?? ((): void => undefined);
+    for (;;) {
+      // only returns early if the port closed
+      await readUntil(port, 1, "\n>>> ", null, follow);
+      if (port.isOpen) {
+        success = true;
+        break;
+      }
+
+      if (!(await reopenAfterReset(port, 10000))) {
+        break;
+      }
+
+      if (interrupted) {
+        stopRunningStuff(port, () => undefined);
+      } else if (!mainPyExists) {
+        // banner and prompt went out before the port was back, print them again
+        port.write(BUFFER_02);
+      }
+    }
+  } finally {
+    emitter.off(PicoSerialEvents.interrupt, onInterrupt);
+    emitter.off(PicoSerialEvents.relayInput, onRelayInput);
+  }
+
+  if (success) {
+    try {
+      await enterRawRepl(port, false);
+    } catch {
+      success = false;
+    }
+  }
+
+  return success;
 }
 
 /**

@@ -20,8 +20,8 @@ import {
   fsRmdirRecursive,
   fsStat,
   getRtcTime,
-  hardReset,
   interactiveCtrlD,
+  interactiveHardReset,
   retrieveTabCompletion,
   runFile,
   runRemoteFile,
@@ -237,7 +237,7 @@ export async function executeAnyCommand(
     //case CommandType.factoryResetFilesystem:
     //  return executeFactoryResetFilesystemCommand(port);
     case CommandType.hardReset:
-      return executeHardResetCommand(port);
+      return executeHardResetCommand(port, emitter, receiver);
 
     case CommandType.garbageCollect:
       return executeGarbageCollectionCommand(port, emitter);
@@ -249,16 +249,22 @@ export async function executeAnyCommand(
 }
 
 /**
- * Perform a hard reset on the board.
+ * Perform a hard reset on the board and follow its output.
  *
  * @param port The serial port where the board is connected to.
+ * @param emitter An event emitter to listen for interrupts and to relay inputs.
+ * @param receiver A callback to receive the output of the board.
  * @returns The result of the operation.
  */
-export function executeHardResetCommand(port: SerialPort): OperationResult {
+export async function executeHardResetCommand(
+  port: SerialPort,
+  emitter: EventEmitter,
+  receiver?: (data: Buffer) => void
+): Promise<OperationResult> {
   try {
-    hardReset(port);
+    const result = await interactiveHardReset(port, emitter, receiver);
 
-    return { type: OperationResultType.commandResult, result: true };
+    return { type: OperationResultType.commandResult, result };
   } catch {
     return { type: OperationResultType.commandResult, result: false };
   }
