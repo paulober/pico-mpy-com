@@ -39,6 +39,7 @@ const BUFFER_02 = Buffer.from("\x02");
 const BUFFER_03 = Buffer.from("\x03");
 const BUFFER_04 = Buffer.from("\x04");
 const BUFFER_CR = Buffer.from("\r");
+const BUFFER_FRIENDLY_PROMPT = Buffer.from("\r\n>>> ");
 const BUFFER_TAB = Buffer.from("\t");
 
 export const CHUNK_SIZE = 256;
@@ -282,12 +283,12 @@ export async function enterRawRepl(
   };
 
   // send CTRL-C twice to stop any running program
-  //port.write("\r\x03\x03", errCb);
   port.write(BUFFER_CR, errCb);
   stopRunningStuff(port, errCb);
 
-  // flush input
-  port.flush(errCb);
+  // discard stale input; flush also drops unsent output, so first make sure
+  // the Ctrl-C actually went out
+  await drainAndFlush(port);
 
   // enter raw repl (CTRL-A)
   port.write(Buffer.concat([BUFFER_CR, BUFFER_01]), errCb);
@@ -357,6 +358,17 @@ export async function resyncRawRepl(port: SerialPort): Promise<void> {
 }
 
 /**
+ * Waits until everything written has been sent, then discards what was
+ * received but not read yet.
+ *
+ * @param port The serial port.
+ */
+async function drainAndFlush(port: SerialPort): Promise<void> {
+  await new Promise<void>(resolve => port.drain(() => resolve()));
+  await new Promise<void>(resolve => port.flush(() => resolve()));
+}
+
+/**
  * Exits the raw REPL mode on the connected board.
  *
  * @param port The serial port to write to.
@@ -368,8 +380,15 @@ export async function exitRawRepl(
   port: SerialPort,
   errorCb?: (err: Error | null | undefined) => void
 ): Promise<void> {
+  // discard stale input before writing: flush also drops unsent output, and
+  // a lost Ctrl-B left the board in the raw REPL (MicroPico#367)
+  await drainAndFlush(port);
+
+  // Ctrl-B only: a CR would make a board that is already in the friendly REPL
+  // print an extra prompt, and waiting would stop there instead of after the
+  // banner. A command sent next could then still reach the raw REPL.
   port.write(
-    "\r\x02",
+    BUFFER_02,
     errorCb ??
       ((err: Error | null | undefined): void => {
         if (err) {
@@ -377,10 +396,20 @@ export async function exitRawRepl(
         }
       })
   );
-  // speed up by making sure flush is called
-  port.flush();
-
-  await readUntil(port, 6, "\r\n>>> ", 2);
+  // the prompt that belongs to the banner Ctrl-B prints
+  const deadline = Date.now() + 2000;
+  let seen = Buffer.alloc(0);
+  while (Date.now() < deadline) {
+    const { matched, before } = await readUntilAny(
+      port,
+      [BUFFER_FRIENDLY_PROMPT],
+      deadline - Date.now()
+    );
+    seen = Buffer.concat([seen, before]);
+    if (matched === undefined || seen.includes("MicroPython")) {
+      return;
+    }
+  }
 }
 
 /**
