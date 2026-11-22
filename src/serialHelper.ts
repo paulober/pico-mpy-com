@@ -332,7 +332,10 @@ export async function enterRawRepl(
  * @param port The serial port to fix.
  */
 export async function reapplyPortSettings(port: SerialPort): Promise<void> {
-  if (!port.isOpen) {
+  // Windows opens ports exclusively, so nothing can change them there. And
+  // updating them would turn RTS off again, which boots ESP32 boards with a
+  // USB-to-serial chip into download mode on reset (MicroPico#366).
+  if (!port.isOpen || process.platform === "win32") {
     return;
   }
 

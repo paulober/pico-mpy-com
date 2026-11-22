@@ -6,6 +6,7 @@ import {
   readUntilAny,
   escapeForReplEval,
   buildReplEvalCommand,
+  reapplyPortSettings,
 } from "./serialHelper.js";
 
 /**
@@ -192,5 +193,48 @@ describe("readUntil", () => {
     assert.ok(result);
     assert.equal(result.length, 1);
     assert.equal(Buffer.concat(chunks).toString("utf-8"), "hi\n");
+  });
+});
+
+describe("reapplyPortSettings", () => {
+  function countingPort(): { port: SerialPort; updates: () => number } {
+    let updates = 0;
+    const port = {
+      isOpen: true,
+      baudRate: 115200,
+      update(_options: unknown, cb: () => void): void {
+        updates++;
+        cb();
+      },
+    };
+
+    return { port: port as unknown as SerialPort, updates: () => updates };
+  }
+
+  function onPlatform(
+    platform: string,
+    fn: () => Promise<void>,
+  ): Promise<void> {
+    const original = Object.getOwnPropertyDescriptor(process, "platform")!;
+    Object.defineProperty(process, "platform", { value: platform });
+
+    return fn().finally(() =>
+      Object.defineProperty(process, "platform", original),
+    );
+  }
+
+  test("applies the speed again on macOS and Linux", async () => {
+    for (const platform of ["darwin", "linux"]) {
+      const { port, updates } = countingPort();
+      await onPlatform(platform, () => reapplyPortSettings(port));
+      assert.equal(updates(), 1, platform);
+    }
+  });
+
+  // updating turns RTS off on Windows (MicroPico#366)
+  test("leaves the port alone on Windows", async () => {
+    const { port, updates } = countingPort();
+    await onPlatform("win32", () => reapplyPortSettings(port));
+    assert.equal(updates(), 0);
   });
 });
